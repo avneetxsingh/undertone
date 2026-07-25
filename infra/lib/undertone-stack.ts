@@ -24,12 +24,6 @@ export class UndertoneStack extends Stack {
   constructor(scope: Construct, id: string, props?: UndertoneStackProps) {
     super(scope, id, props);
     const stage = props?.stage ?? "dev";
-    // us-east-1 on-demand Titan quota is 0 and non-adjustable; us-west-2 has 6000 rpm.
-    // Named const so the Lambda env var and the IAM ARN can never drift apart.
-    // Bedrock on-demand quotas are per-region. This account has 0 req/min for
-    // Titan Embed V2 in us-east-1 AND us-west-2 (non-adjustable); us-east-2 and
-    // eu-west-1 have 6000. Verified empirically, not from docs.
-    const bedrockRegion = "us-east-2";
 
     const table = new dynamodb.Table(this, "Table", {
       partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
@@ -52,13 +46,16 @@ export class UndertoneStack extends Stack {
     const groqKms = new kms.Key(this, "GroqKeyKms", { description: "Encrypts stored Groq API keys" });
 
     const vectorBucketName = `undertone-${stage}-vectors`;
-    const vectorIndexName = "chunks";
+    // Named "chunks-768" (was "chunks" at 1024-dim Bedrock Titan). S3 Vectors index
+    // dimension is immutable and the name is fixed, so switching to Gemini's 768-dim
+    // output requires a new index name — CloudFormation then deletes the old one.
+    const vectorIndexName = "chunks-768";
     const vb = new s3vectors.CfnVectorBucket(this, "VectorBucket", { vectorBucketName });
     const vidx = new s3vectors.CfnIndex(this, "VectorIndex", {
       vectorBucketName,
       indexName: vectorIndexName,
       dataType: "float32",
-      dimension: 1024,
+      dimension: 768,
       distanceMetric: "cosine",
       metadataConfiguration: { nonFilterableMetadataKeys: ["text"] },
     });
@@ -83,7 +80,7 @@ export class UndertoneStack extends Stack {
           KEY_PEPPER: process.env.UNDERTONE_PEPPER ?? "dev-pepper-change-me",
           VECTOR_BUCKET: vectorBucketName,
           VECTOR_INDEX: vectorIndexName,
-          BEDROCK_REGION: bedrockRegion,
+          GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? "",
           ...(process.env.GROQ_BASE_URL ? { GROQ_BASE_URL: process.env.GROQ_BASE_URL } : {}),
         },
       });
@@ -120,10 +117,10 @@ export class UndertoneStack extends Stack {
     // handler — a function without table read cannot authenticate at all.
     table.grantReadData(search);
 
-    const titanArn = `arn:aws:bedrock:${bedrockRegion}::foundation-model/amazon.titan-embed-text-v2:0`;
+    // Embeddings run through Gemini's HTTPS API (see services/src/lib/embeddings.ts),
+    // not a managed AWS model, so no Bedrock IAM grant is needed — the API key is
+    // passed as a Lambda env var. The functions only need S3 Vectors access.
     const vectorIndexArn = `arn:aws:s3vectors:${this.region}:${this.account}:bucket/${vectorBucketName}/index/${vectorIndexName}`;
-    const bedrockInvoke = new iam.PolicyStatement({ actions: ["bedrock:InvokeModel"], resources: [titanArn] });
-    for (const f of [embedWorker, postChunk, search]) f.addToRolePolicy(bedrockInvoke);
     embedWorker.addToRolePolicy(
       new iam.PolicyStatement({ actions: ["s3vectors:PutVectors"], resources: [vectorIndexArn] }),
     );

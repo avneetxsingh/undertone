@@ -53,8 +53,8 @@ your priorities."
 
 **Tech:** TypeScript end to end — Node 22 Lambdas, AWS CDK for infrastructure,
 Groq (Whisper + `openai/gpt-oss-120b`) for transcription and generation,
-Amazon Bedrock (Titan Text Embeddings V2) for embeddings, S3 Vectors for
-retrieval.
+Google Gemini (`gemini-embedding-001`, 768-dim) for embeddings, and S3 Vectors
+for retrieval.
 
 ### Where it came from
 
@@ -157,8 +157,8 @@ Written plainly, because this project exists to show capability:
    │   6. persist + enqueue ─────────────▶ DynamoDB + SQS         │      │
    └──────────────────────┬───────────────────────────────────────┘      │
                           │                                              │
-                          │   SQS ──▶ embedWorker Lambda ──▶ Bedrock     │
-                          │    │         (async, off hot path)  Titan V2 │
+                          │   SQS ──▶ embedWorker Lambda ──▶ Gemini      │
+                          │    │         (async, off hot path)  embeddings│
                           │    │                                    │    │
                           │    ▼                                    ▼    │
                           │   DLQ (3 retries)          S3 Vectors index  │
@@ -181,8 +181,13 @@ Written plainly, because this project exists to show capability:
 | **S3 Vectors** | Per-account embedding index for semantic retrieval | Purpose-built vector storage — no vector database to run, pay-per-use, native metadata filtering for tenant isolation |
 | **SQS + DLQ** | Decouples embedding from the request path; 3 retries then dead-letter | Embedding is slow and failure-prone; the user's response must never wait on it, and failed jobs must not vanish silently |
 | **KMS** | Encrypts each account's Groq API key at rest | Third-party credentials must never sit in plaintext in a database |
-| **Amazon Bedrock** | Titan Text Embeddings V2 (1024-dim) | Managed embeddings with no model hosting; consistent vectors across the whole corpus |
 | **CloudFormation via CDK** | Whole stack as TypeScript infrastructure-as-code | The architecture is reviewable, diffable, and testable — the test suite asserts on the synthesized template |
+
+Embeddings are the one piece **not** on AWS: they call **Google Gemini**
+(`gemini-embedding-001`, 768-dim, free tier) over HTTPS from the embed worker.
+Bedrock Titan was the original choice but was quota-blocked on the dev account
+(details in [Known limitations](#known-limitations)); the provider lives behind
+a single function, so the swap touched one file and the index dimension.
 
 ---
 
@@ -214,7 +219,7 @@ What happens when a client posts 30 seconds of audio:
 8. **Respond** with the transcript and suggestions in a single round trip.
 
 Separately, `embedWorker` consumes the queue, embeds the transcript via
-Bedrock, and writes the vector; failures throw so SQS retries, and after
+Gemini, and writes the vector; failures throw so SQS retries, and after
 three attempts the message lands in the dead-letter queue.
 
 ---
@@ -231,7 +236,7 @@ Every request carries `authorization: Bearer ut_live_…`.
 | POST | `/v1/sessions/{id}/chunks` | Raw audio body → `{ seq, transcript, suggestions[] }` | shipped |
 | POST | `/v1/sessions/{id}/end` | Close the session; generate summary + action items | shipped |
 | PUT | `/v1/account/groq-key` | Store the account's Groq key (KMS-encrypted) | shipped |
-| GET | `/v1/search?q=…` | Semantic search across the account's sessions | built; blocked on Bedrock access — see [Known limitations](#known-limitations) |
+| GET | `/v1/search?q=…` | Semantic search across the account's sessions | shipped |
 | POST | `/v1/chat` | Session-grounded deep-dive — `{sessionId, prompt}` → `{reply}` | shipped |
 | CRUD | `/v1/webhooks` | Webhook subscriptions | roadmap |
 
@@ -389,7 +394,7 @@ reviewed:
 
 | Added | What it does |
 |---|---|
-| Bedrock embeddings library | Titan Text Embeddings V2 at 1024 dimensions |
+| Embeddings library | `gemini-embedding-001` at 768 dimensions (originally Bedrock Titan; swapped after a quota block) |
 | S3 Vectors library | Account-namespaced writes and metadata-filtered queries |
 | Async embed pipeline | SQS + dead-letter queue + `embedWorker` Lambda, so embedding never blocks a response |
 | `GET /v1/search` | Semantic search across an account's entire history |
@@ -431,32 +436,26 @@ npx tsx scripts/smoke.ts          # live end-to-end
 
 ## Known limitations
 
-**Embeddings are blocked on Bedrock account access — the memory features are
-built and tested but not yet proven end to end.** Amazon Bedrock gates
-on-demand model inference per account and per region. On the account this was
-developed against, `InvokeModel` for Titan Text Embeddings V2 returns
-`ThrottlingException` in every region tested (`us-east-1`, `us-west-2`,
-`us-east-2`) — including regions where the Service Quotas API *reports* 6000
-requests/minute, so the reported quota does not reflect actual entitlement.
-Raising it requires an AWS Support case, not a console request.
+**Embeddings run through Google Gemini, not Amazon Bedrock — and here's why,
+because it's a more honest story than pretending the first choice worked.**
+The original design used Bedrock Titan Text Embeddings V2. It turned out that
+Bedrock gates on-demand inference per account, and the development account had
+a quota of **0 requests/minute** for Titan V2 in every region tested
+(`us-east-1`, `us-west-2`, `us-east-2`) — non-adjustable through the console,
+and in some regions the Service Quotas API *reported* 6000 rpm while live
+calls still threw `ThrottlingException`, so the reported number didn't reflect
+real entitlement. Rather than block the whole memory feature on an AWS Support
+case, `embedText` was pointed at Gemini's `gemini-embedding-001` (768-dim,
+free tier), which has no per-region gating. The embedding provider is a single
+function (`services/src/lib/embeddings.ts`) precisely so a swap like this
+touches one file plus the vector-index dimension.
 
-Concretely, this means:
-
-- `POST /v1/sessions/{id}/chunks` works fully — transcription and suggestions
-  are unaffected, because retrieval is best-effort and degrades silently when
-  embeddings are unavailable. Verified live.
-- `GET /v1/search` returns `500` — it authenticates correctly and reaches the
-  embedding call, then fails there. Verified live.
-- No vectors are written, so cross-session history is always empty and the
-  date-citation behaviour cannot be demonstrated yet.
-
-The embedding client's region is configurable via `BEDROCK_REGION` so this
-resolves with a redeploy once access is granted. Everything else — ingestion,
-transcription, suggestions, summaries, `/v1/chat`, and the whole storage and
-auth layer — runs through Groq and DynamoDB and is fully working.
-
-Documented rather than hidden, because a README that claims a feature works
-when it doesn't is worse than one that says exactly where the edge is.
+The rest of the platform is unchanged and still fully on AWS — DynamoDB, S3,
+S3 Vectors, SQS, KMS, Lambda, all of it. Only the embedding HTTPS call leaves
+AWS. Verified live end to end: posting a chunk writes a real 768-dim vector to
+the index, `/v1/search` returns the matching moment, and the smoke test takes
+its search-hits branch. The Gemini key is supplied to the Lambdas as an
+environment variable.
 
 **Chat is not streamed.** `/v1/chat` returns a complete JSON reply. Streaming
 requires a Lambda Function URL (API Gateway HTTP APIs don't stream) and is

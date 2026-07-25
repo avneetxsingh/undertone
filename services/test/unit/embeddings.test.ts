@@ -1,37 +1,49 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import { mockClient } from "aws-sdk-client-mock";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
-import { BEDROCK_REGION, EMBED_DIM, embedText } from "../../src/lib/embeddings";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { EMBED_DIM, embedText } from "../../src/lib/embeddings";
 
-const brMock = mockClient(BedrockRuntimeClient);
-beforeEach(() => brMock.reset());
+const okResp = (values: number[]) => ({ ok: true, status: 200, json: async () => ({ embedding: { values } }) });
 
-const bodyBytes = (obj: unknown) => new TextEncoder().encode(JSON.stringify(obj));
-
-describe("embedText", () => {
-  test("bedrock client targets us-east-2 where Titan quota is available", () => {
-    // us-east-1 on-demand Titan quota is 0 and non-adjustable on this account;
-    // us-east-2 has 6000 rpm. Guards against silently reverting to the default region.
-    expect(BEDROCK_REGION).toBe("us-east-2");
+describe("embedText (Gemini)", () => {
+  beforeEach(() => {
+    process.env.GEMINI_API_KEY = "test-key";
+    delete process.env.GEMINI_BASE_URL;
   });
-  test("sends titan v2 request and returns the embedding", async () => {
-    const fake = Array.from({ length: EMBED_DIM }, (_, i) => i / EMBED_DIM);
-    brMock.on(InvokeModelCommand).resolves({ body: bodyBytes({ embedding: fake }) } as never);
+  afterEach(() => vi.restoreAllMocks());
+
+  test("posts to gemini embedContent with 768 dims and returns the vector", async () => {
+    const vec = Array.from({ length: EMBED_DIM }, (_, i) => i / EMBED_DIM);
+    const fetchMock = vi.fn().mockResolvedValue(okResp(vec));
+    vi.stubGlobal("fetch", fetchMock);
     const out = await embedText("hello roadmap");
-    expect(out).toEqual(fake);
-    const input = brMock.commandCalls(InvokeModelCommand)[0].args[0].input;
-    expect(input.modelId).toBe("amazon.titan-embed-text-v2:0");
-    const sent = JSON.parse(new TextDecoder().decode(input.body as Uint8Array));
-    expect(sent).toEqual({ inputText: "hello roadmap", dimensions: 1024, normalize: true });
+    expect(out).toEqual(vec);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("models/gemini-embedding-001:embedContent");
+    expect(url).toContain("key=test-key");
+    const body = JSON.parse(init.body);
+    expect(body.content.parts[0].text).toBe("hello roadmap");
+    expect(body.outputDimensionality).toBe(768);
   });
+
   test("truncates very long input to 8000 chars", async () => {
-    brMock.on(InvokeModelCommand).resolves({ body: bodyBytes({ embedding: [0.1] }) } as never);
+    const fetchMock = vi.fn().mockResolvedValue(okResp([0.1]));
+    vi.stubGlobal("fetch", fetchMock);
     await embedText("x".repeat(20000));
-    const sent = JSON.parse(new TextDecoder().decode(brMock.commandCalls(InvokeModelCommand)[0].args[0].input.body as Uint8Array));
-    expect(sent.inputText.length).toBe(8000);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.content.parts[0].text.length).toBe(8000);
   });
-  test("malformed bedrock output throws 502 embed_failed", async () => {
-    brMock.on(InvokeModelCommand).resolves({ body: bodyBytes({ nope: true }) } as never);
+
+  test("non-2xx response throws 502 embed_failed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }));
+    await expect(embedText("t")).rejects.toMatchObject({ status: 502, code: "embed_failed" });
+  });
+
+  test("malformed body (no embedding) throws 502 embed_failed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ nope: true }) }));
+    await expect(embedText("t")).rejects.toMatchObject({ status: 502, code: "embed_failed" });
+  });
+
+  test("missing GEMINI_API_KEY throws 502 embed_failed", async () => {
+    delete process.env.GEMINI_API_KEY;
     await expect(embedText("t")).rejects.toMatchObject({ status: 502, code: "embed_failed" });
   });
 });
