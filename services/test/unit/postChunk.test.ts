@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { KMSClient, DecryptCommand } from "@aws-sdk/client-kms";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { QueryVectorsCommand, S3VectorsClient } from "@aws-sdk/client-s3vectors";
 import { generateApiKey } from "../../src/lib/auth";
 import { handler } from "../../src/handlers/postChunk";
@@ -14,19 +13,33 @@ const ddbMock = mockClient(DynamoDBDocumentClient);
 const kmsMock = mockClient(KMSClient);
 const s3Mock = mockClient(S3Client);
 const sqsMock = mockClient(SQSClient);
-const brMock = mockClient(BedrockRuntimeClient);
 const svMock = mockClient(S3VectorsClient);
 
 let fake: { url: string; close(): void; requests: FakeGroqRequest[] } | undefined;
+
+// Gemini embedText uses global fetch; the fake Groq server also uses real fetch.
+// This stub answers only the Gemini embed call and delegates everything else
+// (transcription + suggestions to the fake Groq server) to the real fetch.
+const realFetch = globalThis.fetch;
+const stubGeminiEmbed = (values: number[]) =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: unknown, init?: unknown) =>
+      String(url).includes("generativelanguage")
+        ? Promise.resolve({ ok: true, status: 200, json: async () => ({ embedding: { values } }) })
+        : (realFetch as (u: unknown, i?: unknown) => Promise<unknown>)(url, init),
+    ),
+  );
 
 beforeEach(() => {
   ddbMock.reset();
   kmsMock.reset();
   s3Mock.reset();
   sqsMock.reset();
-  brMock.reset();
   svMock.reset();
   process.env.KEY_PEPPER = "p";
+  process.env.GEMINI_API_KEY = "test-key";
+  stubGeminiEmbed([0.1, 0.2]); // default; history tests re-stub as needed
   process.env.TABLE_NAME = "t";
   process.env.BUCKET_NAME = "b";
   process.env.KMS_KEY_ID = "kms-key-1";
@@ -39,6 +52,7 @@ afterEach(() => {
   fake?.close();
   fake = undefined;
   delete process.env.GROQ_BASE_URL;
+  vi.unstubAllGlobals();
 });
 
 describe("POST /v1/sessions/{id}/chunks", () => {
@@ -214,7 +228,7 @@ describe("POST /v1/sessions/{id}/chunks", () => {
     ddbMock.on(PutCommand).resolves({});
     kmsMock.on(DecryptCommand).resolves({ Plaintext: Buffer.from("gsk_k") });
     s3Mock.on(PutObjectCommand).resolves({});
-    brMock.on(InvokeModelCommand).resolves({ body: new TextEncoder().encode(JSON.stringify({ embedding: [0.1, 0.2] })) } as never);
+    stubGeminiEmbed([0.1, 0.2]);
     svMock.on(QueryVectorsCommand).resolves({
       vectors: [
         { key: "A1/S0/000001", distance: 0.1, metadata: { sessId: "S0", seq: 1, text: "we chose postgres", createdAt: "2026-07-01T00:00:00.000Z" } },
@@ -253,7 +267,7 @@ describe("POST /v1/sessions/{id}/chunks", () => {
     ddbMock.on(PutCommand).resolves({});
     kmsMock.on(DecryptCommand).resolves({ Plaintext: Buffer.from("gsk_k") });
     s3Mock.on(PutObjectCommand).resolves({});
-    brMock.on(InvokeModelCommand).resolves({ body: new TextEncoder().encode(JSON.stringify({ embedding: [0.1, 0.2] })) } as never);
+    stubGeminiEmbed([0.1, 0.2]);
     svMock.on(QueryVectorsCommand).rejects(new Error("vector search down"));
 
     const res = await handler({

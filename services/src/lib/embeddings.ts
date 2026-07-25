@@ -1,27 +1,30 @@
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { ApiError } from "./errors";
 
-// us-east-1 has an on-demand quota of 0 req/min for Titan Embed Text v2, and it's
-// not adjustable via Service Quotas on new accounts. us-east-2 has 6000 req/min
-// available on this account, so the Bedrock client targets it directly while the
-// rest of the stack (Lambda, DynamoDB, S3 Vectors) stays in us-east-1.
-export const BEDROCK_REGION = process.env.BEDROCK_REGION ?? "us-east-2";
-const client = new BedrockRuntimeClient({ region: BEDROCK_REGION });
-const MODEL_ID = "amazon.titan-embed-text-v2:0";
-export const EMBED_DIM = 1024;
+// Embeddings run through Google's Gemini API (gemini-embedding-001). Bedrock
+// Titan was the original choice, but that account's on-demand Titan quota is 0
+// in every region and non-adjustable via Service Quotas, so it could never
+// serve a request. Gemini's free tier does, with no per-region gating.
+// GEMINI_BASE_URL is overridable so unit tests never hit the network.
+export const EMBED_DIM = 768;
+const MODEL_ID = "gemini-embedding-001";
+const base = () => process.env.GEMINI_BASE_URL ?? "https://generativelanguage.googleapis.com";
 
 export async function embedText(text: string): Promise<number[]> {
-  const res = await client.send(
-    new InvokeModelCommand({
-      modelId: MODEL_ID,
-      contentType: "application/json",
-      accept: "application/json",
-      body: new TextEncoder().encode(
-        JSON.stringify({ inputText: text.slice(0, 8000), dimensions: EMBED_DIM, normalize: true }),
-      ),
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new ApiError(502, "embed_failed", "GEMINI_API_KEY is not configured");
+
+  const res = await fetch(`${base()}/v1beta/models/${MODEL_ID}:embedContent?key=${key}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      content: { parts: [{ text: text.slice(0, 8000) }] },
+      outputDimensionality: EMBED_DIM,
     }),
-  );
-  const parsed = JSON.parse(new TextDecoder().decode(res.body)) as { embedding?: unknown };
-  if (!Array.isArray(parsed.embedding)) throw new ApiError(502, "embed_failed", "Bedrock returned no embedding");
-  return parsed.embedding as number[];
+  });
+  if (!res.ok) throw new ApiError(502, "embed_failed", `Gemini embeddings returned ${res.status}`);
+
+  const data = (await res.json()) as { embedding?: { values?: unknown } };
+  const values = data.embedding?.values;
+  if (!Array.isArray(values)) throw new ApiError(502, "embed_failed", "Gemini returned no embedding");
+  return values as number[];
 }

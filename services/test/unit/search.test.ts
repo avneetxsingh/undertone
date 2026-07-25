@@ -1,19 +1,19 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { QueryVectorsCommand, S3VectorsClient } from "@aws-sdk/client-s3vectors";
 import { generateApiKey } from "../../src/lib/auth";
 import { handler } from "../../src/handlers/search";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
-const brMock = mockClient(BedrockRuntimeClient);
 const svMock = mockClient(S3VectorsClient);
 beforeEach(() => {
-  ddbMock.reset(); brMock.reset(); svMock.reset();
+  ddbMock.reset(); svMock.reset();
   process.env.KEY_PEPPER = "p"; process.env.TABLE_NAME = "t";
   process.env.VECTOR_BUCKET = "vb"; process.env.VECTOR_INDEX = "chunks";
+  process.env.GEMINI_API_KEY = "test-key";
 });
+afterEach(() => vi.restoreAllMocks());
 
 const authed = () => {
   ddbMock.on(QueryCommand).resolves({ Items: [{ acctId: "A1", name: "n" }] });
@@ -38,7 +38,7 @@ describe("GET /v1/search", () => {
     expect(JSON.parse(resWhitespace.body!).error.code).toBe("missing_query");
   });
   test("200 embeds the query and returns account-filtered hits", async () => {
-    brMock.on(InvokeModelCommand).resolves({ body: new TextEncoder().encode(JSON.stringify({ embedding: [0.9] })) } as never);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ embedding: { values: [0.9] } }) }));
     svMock.on(QueryVectorsCommand).resolves({
       vectors: [{ key: "A1/S0/000001", distance: 0.2, metadata: { sessId: "S0", seq: 1, text: "decided postgres", createdAt: "2026-07-01T00:00:00.000Z" } }],
     } as never);
