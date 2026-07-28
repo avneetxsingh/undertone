@@ -1,0 +1,96 @@
+[
+  {
+    "seq": 1,
+    "transcript": " Hi everyone, this is Priya Chandran and Marcus Webb, and today we're covering the Q3 onboarding funnel redesign, our agenda, review the drop-off data, discuss the verification step, and land on a rollout plan before we wrap up in 20 minutes.",
+    "suggestions": [
+      {
+        "type": "QUESTION",
+        "preview": "What is the current conversion rate at the verification step versus the baseline, and what target are we aiming for for Q3?",
+        "detail_prompt": "Based on the Q3 onboarding funnel redesign discussion, could you provide the current conversion rate at the verification step, the baseline rate, and the target conversion rate you aim to achieve for Q3?"
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Clarify what the 'verification step' entails—whether it's email confirmation, identity check, or another action in the onboarding flow.",
+        "detail_prompt": "In the context of the Q3 onboarding funnel redesign, can you describe the specific actions that make up the 'verification step'—e.g., is it an email confirmation, an identity verification, or something else?"
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "Highlight that reducing onboarding drop‑off by at least 15% this quarter will directly support the product’s growth targets and should be the key KPI for the redesign.",
+        "detail_prompt": "Given the Q3 onboarding funnel redesign agenda, can we agree that a primary success metric should be a minimum 15% reduction in overall onboarding drop‑off, aligning with the product’s quarterly growth objectives?"
+      }
+    ]
+  },
+  {
+    "seq": 2,
+    "transcript": " So, looking at the numbers, our activation funnel currently converts at 34% from Signup to first project created, and we lost 12% of users specifically at the email verification step last month.",
+    "suggestions": [
+      {
+        "type": "FACT_CHECK",
+        "preview": "The 12% loss at verification accounts for about 18% of the total 66% drop‑off implied by the 34% activation rate, indicating verification is a significant but not sole bottleneck.",
+        "detail_prompt": "Based on the reported 34% overall activation conversion and the 12% loss at the email verification step, calculate what proportion of total drop‑off this step represents and verify the significance of the bottleneck."
+      },
+      {
+        "type": "QUESTION",
+        "preview": "What are the leading hypotheses for the 12% verification drop‑off, and which user segments appear most affected?",
+        "detail_prompt": "In the context of the Q3 onboarding funnel redesign, what potential reasons could explain the 12% user loss at the email verification step, and which user demographics or behaviors seem most correlated with this drop?"
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Define ‘first project created’ – does it mean a saved draft, a published project, or any initial activity within the platform?",
+        "detail_prompt": "During the Q3 onboarding discussion, clarify what is meant by 'first project created' – is it a saved draft, a published project, or any first meaningful interaction, and how is it measured in the funnel metrics?"
+      }
+    ]
+  },
+  {
+    "seq": 3,
+    "transcript": " That's rough. Marcus, do you know why the verification step is causing so much drop-off? Is it the email delay? Or is it something in the UI copy that's confusing people?",
+    "suggestions": [
+      {
+        "type": "FACT_CHECK",
+        "preview": "The 12% loss likely refers to users who reached the verification step, meaning it represents ~35% of the total drop‑off, not just 12% of all sign‑ups.",
+        "detail_prompt": "In the presented funnel, does the 12% figure refer to all sign‑ups or only those who reached the email verification step? Calculate its share of the overall 66% drop‑off to clarify the metric basis."
+      },
+      {
+        "type": "ANSWER",
+        "preview": "The drop‑off could be due to delayed email delivery, spam filtering, or confusing copy such as an unclear call‑to‑action or missing resend link.",
+        "detail_prompt": "Based on the current funnel data, list the most probable causes for the 12% verification drop‑off, including email latency, spam folder rates, and UI copy clarity, and indicate which can be measured quickly."
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "Propose an A/B test swapping the verification email copy and adding a visible ‘Resend’ button to isolate UI vs delivery issues before full rollout.",
+        "detail_prompt": "What specific A/B test design would let us compare the current verification email copy against a revised version with a clearer CTA and a resend link, including metrics to track success?"
+      }
+    ]
+  },
+  {
+    "seq": 4,
+    "transcript": " Honestly, I'm not sure yet. Also, quick question for the group. What exactly do we mean by progressive profiling in this context? I've seen that term in three different specs now, and I don't think we all mean the same thing.",
+    "suggestions": []
+  },
+  {
+    "seq": 5,
+    "transcript": " Let's park that definition for later. Here's what I'm thinking. We cut the verification step down to a single click magic link instead of a code. And we push profile completion to after the first project is created. Marcus. Are you good with that direction?",
+    "suggestions": [
+      {
+        "type": "ANSWER",
+        "preview": "Progressive profiling is incrementally gathering user data—starting with core signup info, then adding details like company size or preferences after the first project is created.",
+        "detail_prompt": "Provide a concise definition of progressive profiling as used in our onboarding redesign, including examples of data collected at each stage and how it differs from a one‑time full profile capture."
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "We need to keep the email verification step (security) separate from progressive profiling (data collection) to avoid mixing friction points with data‑gathering goals.",
+        "detail_prompt": "Explain the distinction between the verification step and progressive profiling in our current funnel, and why conflating them could mislead the redesign decisions."
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "A single‑click magic link cuts friction but may raise fraud risk; consider adding a fallback verification or monitoring system before fully removing the code entry step.",
+        "detail_prompt": "Discuss security implications of replacing the code‑based verification with a magic‑link approach, and suggest possible safeguards or monitoring mechanisms to mitigate potential abuse."
+      }
+    ]
+  },
+  {
+    "seq": 6,
+    "transcript": " Agreed. Let's go with the magic link approach. For next steps, I'll draft the technical spec by Thursday. Creo will mock up the new verification screen, and we'll reconvene Monday to review before handing it off to engineering.",
+    "suggestions": []
+  }
+]
