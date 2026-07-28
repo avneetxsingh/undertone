@@ -15,6 +15,7 @@ describe("replay fixture", () => {
   test("every chunk carries transcript text and well-formed suggestions", () => {
     for (const chunk of REPLAY_SESSION) {
       expect(chunk.transcript.trim().length).toBeGreaterThan(0);
+      expect(chunk.suggestions.length).toBeGreaterThan(0);
       for (const s of chunk.suggestions) {
         expect(TYPES).toContain(s.type);
         expect(s.preview.trim().length).toBeGreaterThan(0);
