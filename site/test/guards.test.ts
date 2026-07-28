@@ -73,4 +73,12 @@ describe("guards", () => {
     mockIncr.mockRejectedValueOnce(new Error("redis down"));
     await expect(guardSessionCreate(req())).rejects.toBeInstanceOf(DemoError);
   });
+
+  test("chunk store failure on global daily counter refusal", async () => {
+    mockIncr.mockResolvedValueOnce(1).mockRejectedValueOnce(new Error("redis down"));
+    await expect(guardChunk("s1")).rejects.toMatchObject({
+      status: 503,
+      code: "demo_capacity",
+    });
+  });
 });
