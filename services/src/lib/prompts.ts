@@ -1,4 +1,4 @@
-// SUGGESTIONS_PROMPT: copied verbatim from TwinMind/web/lib/prompts.ts (v3 routing prompt).
+// SUGGESTIONS_PROMPT: copied verbatim from web/lib/prompts.ts (v3 routing prompt).
 export const SUGGESTIONS_PROMPT = `You are an expert real-time meeting copilot.
 A conversation is happening right now.
 Your job is to surface exactly 3 suggestions that are
@@ -179,7 +179,7 @@ Reply with JSON exactly: {"summary": "<summary of at most 150 words>", "action_i
 Only include action items actually discussed in the transcript. Never invent owners.
 If the transcript is empty or trivial, return {"summary": "", "action_items": []}.`;
 
-// CHAT_SYSTEM_PROMPT: copied verbatim from TwinMind/web/lib/prompts.ts.
+// CHAT_SYSTEM_PROMPT: copied verbatim from web/lib/prompts.ts.
 export const CHAT_SYSTEM_PROMPT = `You are a meeting copilot assistant with access to the full transcript of an ongoing meeting.
 
 When the user asks a question or clicks a suggestion for deeper detail:
