@@ -10,5 +10,6 @@ CLAUDE.md
 
 # local tooling artifacts
 docs
+!/site/app/docs/
 graphify-out/
 .DS_Store
