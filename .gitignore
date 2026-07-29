@@ -9,7 +9,6 @@ dist/
 CLAUDE.md
 
 # local tooling artifacts
-docs
-!/site/app/docs/
+/docs/
 graphify-out/
 .DS_Store

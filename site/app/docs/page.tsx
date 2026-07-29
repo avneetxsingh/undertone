@@ -38,7 +38,7 @@ export default function DocsPage() {
           <code>Authorization: Bearer ut_live_&hellip;</code>
         </pre>
         <p>
-          A missing or malformed key returns <code>401</code> before any handler logic runs. Keys are never
+          A missing or malformed key returns <code>401</code> before any other handler logic runs. Keys are never
           accepted as a query parameter or request body field &mdash; only the header.
         </p>
       </section>
@@ -135,7 +135,8 @@ export default function DocsPage() {
             <code>{`{
   "sessions": [
     {
-      "id": "string",
+      "id": "string",        // mirrors "sessId" below — both keys carry the same value
+      "sessId": "string",
       "title": "string",
       "kind": "string",
       "status": "active" | "ended",
@@ -156,7 +157,8 @@ export default function DocsPage() {
           <p>No request body. Response &mdash; <code>200</code>:</p>
           <pre className="code-block">
             <code>{`{
-  "id": "string",
+  "id": "string",        // mirrors "sessId" below — both keys carry the same value
+  "sessId": "string",
   "title": "string",
   "kind": "string",
   "status": "active" | "ended",
@@ -212,7 +214,8 @@ export default function DocsPage() {
           </pre>
           <p className="endpoint-errors">
             Errors: <code>422 missing_session_id</code>, <code>422 empty_audio</code>,{" "}
-            <code>422 unsupported_audio_type</code>, <code>404 session_not_found</code>.
+            <code>422 unsupported_audio_type</code>, <code>404 session_not_found</code>,{" "}
+            <code>402 groq_key_missing</code>, <code>402 groq_key_invalid</code>, <code>502 groq_upstream</code>.
           </p>
         </div>
 
@@ -243,10 +246,13 @@ export default function DocsPage() {
             <code>{`{
   "results": [
     { "sessId": "string", "seq": 1, "text": "string", "createdAt": "ISO 8601 string", "distance": 0.12 }
+    // "distance" is optional — omitted if the vector index didn't return one
   ]
 }`}</code>
           </pre>
-          <p className="endpoint-errors">Errors: <code>422 missing_query</code>.</p>
+          <p className="endpoint-errors">
+            Errors: <code>422 missing_query</code>, <code>502 embed_failed</code>.
+          </p>
         </div>
 
         <div className="endpoint-detail">
@@ -262,8 +268,9 @@ export default function DocsPage() {
             <code>{`{ "reply": "string" }`}</code>
           </pre>
           <p className="endpoint-errors">
-            Errors: <code>422 missing_session_id</code>, <code>422 missing_prompt</code>,{" "}
-            <code>404 session_not_found</code>.
+            Errors: <code>400 invalid_json</code>, <code>422 missing_session_id</code>,{" "}
+            <code>422 missing_prompt</code>, <code>404 session_not_found</code>,{" "}
+            <code>402 groq_key_missing</code>, <code>402 groq_key_invalid</code>, <code>502 groq_upstream</code>.
           </p>
         </div>
 
@@ -357,6 +364,26 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
                 <td>Search request did not include <code>?q=</code>.</td>
               </tr>
               <tr>
+                <td>402</td>
+                <td><code>groq_key_missing</code></td>
+                <td>No Groq key is on file for this account; set one via <code>PUT /v1/account/groq-key</code>.</td>
+              </tr>
+              <tr>
+                <td>402</td>
+                <td><code>groq_key_invalid</code></td>
+                <td>Groq rejected the stored key.</td>
+              </tr>
+              <tr>
+                <td>502</td>
+                <td><code>groq_upstream</code></td>
+                <td>Groq returned a non-2xx status or an unusable response.</td>
+              </tr>
+              <tr>
+                <td>502</td>
+                <td><code>embed_failed</code></td>
+                <td>The embeddings provider (Gemini) failed or is unconfigured.</td>
+              </tr>
+              <tr>
                 <td>500</td>
                 <td><code>internal</code></td>
                 <td>Unhandled server error; details are logged server-side only.</td>
@@ -422,8 +449,7 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
         </div>
         <p className="docs-note">
           These caps apply only to the hosted demo&apos;s rate limiter, not to the underlying platform API
-          documented above &mdash; a request made directly with your own key is subject only to the errors
-          in the table above.
+          documented above &mdash; a request made directly with your own key never hits them.
         </p>
       </section>
     </main>
