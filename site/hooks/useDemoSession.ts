@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { REPLAY_SESSION } from "@/lib/replay";
 import type { ChatMessage, Suggestion, SuggestionBatch, TranscriptChunk } from "@/lib/types";
 
@@ -29,6 +29,7 @@ export function useDemoSession() {
   const runningRef = useRef(false);
   const startedAtRef = useRef(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const replayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const appendResult = useCallback((transcript: string, suggestions: Suggestion[]) => {
     const timestamp = stamp(startedAtRef.current);
@@ -41,6 +42,15 @@ export function useDemoSession() {
   const stopHardware = useCallback(() => {
     runningRef.current = false;
     if (tickRef.current) clearInterval(tickRef.current);
+
+    // Cancel any pending replay continuation. Without this, a second failure
+    // path calling startReplay() (or an explicit stop()) would leave the
+    // previous chain's setTimeout alive, appending chunks/batches on top of
+    // whatever runs next.
+    if (replayTimeoutRef.current) {
+      clearTimeout(replayTimeoutRef.current);
+      replayTimeoutRef.current = null;
+    }
 
     // Detach the handlers before stopping. The final stop still emits one
     // dataavailable, and letting it through would upload a trailing segment
@@ -59,21 +69,49 @@ export function useDemoSession() {
     streamRef.current = null;
   }, []);
 
+  // Always-current ref to stopHardware, so the unmount effect below can call
+  // through it without listing stopHardware as a dependency. stopHardware's
+  // own deps are `[]` so its identity never actually changes today, but a
+  // cleanup keyed to a useCallback's identity is one future edit away from
+  // tearing down a live recording mid-session — reading through a ref makes
+  // that impossible regardless of how stopHardware evolves.
+  const stopHardwareRef = useRef(stopHardware);
+  stopHardwareRef.current = stopHardware;
+
+  // Unmount-only cleanup: an empty dependency array guarantees this effect's
+  // cleanup runs exactly once, on unmount, and never in response to a
+  // start/stop cycle. Without it, a visitor navigating away mid-recording
+  // leaves the microphone live and the elapsed-timer interval ticking forever
+  // in a hook nobody is listening to anymore.
+  useEffect(() => {
+    return () => stopHardwareRef.current();
+  }, []);
+
   /** Plays the captured session. Never throws; this is the last line of defence. */
   const startReplay = useCallback(
     (message: string | null) => {
+      // stopHardware() also cancels any replay chain already in flight, so a
+      // second failure path calling startReplay() supersedes the first
+      // instead of racing it.
       stopHardware();
       setError(message);
       setStatus("replay");
       startedAtRef.current = Date.now();
       let i = 0;
       const step = () => {
-        if (i >= REPLAY_SESSION.length) return;
+        if (i >= REPLAY_SESSION.length) {
+          replayTimeoutRef.current = null;
+          return;
+        }
         const chunk = REPLAY_SESSION[i++];
         appendResult(chunk.transcript, chunk.suggestions);
-        if (i < REPLAY_SESSION.length) setTimeout(step, SEGMENT_MS);
+        replayTimeoutRef.current = i < REPLAY_SESSION.length ? setTimeout(step, SEGMENT_MS) : null;
       };
-      step();
+      // Schedule even the first step (rather than calling it inline) so it
+      // lives behind replayTimeoutRef too: if another startReplay() call
+      // lands before this fires, its stopHardware() cancels this one
+      // outright instead of both loops appending the opening chunk.
+      replayTimeoutRef.current = setTimeout(step, 0);
     },
     [appendResult, stopHardware],
   );
