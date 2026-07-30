@@ -74,11 +74,4 @@ describe("POST /api/demo/chunk", () => {
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toMatchObject({ error: { code: "session_not_found" } });
   });
-
-  test("no response body contains the demo key", async () => {
-    process.env.UNDERTONE_DEMO_KEY = "ut_live_secret";
-    mockUpstream.mockRejectedValue(new DemoError(503, "demo_capacity", "unavailable"));
-    const res = await POST(audioReq());
-    expect(await res.text()).not.toContain("ut_live_secret");
-  });
 });

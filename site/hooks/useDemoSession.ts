@@ -94,6 +94,12 @@ export function useDemoSession() {
       // second failure path calling startReplay() supersedes the first
       // instead of racing it.
       stopHardware();
+      // Drop the live session id. ask() branches on this ref alone, so leaving
+      // a previous session's id here would answer a question about the canned
+      // fixture out of the visitor's earlier real meeting — a different
+      // transcript than the one on screen — and spend live chat calls that
+      // degrading to replay exists to avoid.
+      sessionIdRef.current = null;
       setError(message);
       setStatus("replay");
       startedAtRef.current = Date.now();
@@ -133,6 +139,13 @@ export function useDemoSession() {
           headers: { "content-type": contentType },
           body: blob,
         });
+        // The session can end while this request is inside Whisper. stop()
+        // detaches the recorder and POSTs /end in ~200ms, so the chunk lands
+        // on an ended session and the platform answers 404 session_not_found
+        // — which would otherwise fall through to startReplay() below and
+        // flip a session the visitor just finished into a capacity apology
+        // with canned chunks appended under their real transcript.
+        if (!runningRef.current) return;
         const data = await res.json();
         if (!res.ok) {
           if (data?.error?.code === "demo_session_complete") {
@@ -147,6 +160,10 @@ export function useDemoSession() {
         appendResult(data.transcript ?? "", data.suggestions ?? []);
         if (runningRef.current) setStatus("recording");
       } catch {
+        // Same guard on the rejection path: a fetch aborted by unmount or by
+        // stop() must not start a 45-second replay chain in a hook nobody is
+        // rendering anymore.
+        if (!runningRef.current) return;
         startReplay("Lost the connection — showing a recorded session instead.");
       } finally {
         clearInterval(processTick);
@@ -157,6 +174,21 @@ export function useDemoSession() {
   );
 
   const start = useCallback(async () => {
+    // Re-entry guard. Everything below awaits before it touches any state, so
+    // two clicks inside the getUserMedia window would each create a session
+    // and burn both of the visitor's hourly slots before a word is recorded.
+    if (runningRef.current) return;
+    // Cancel a replay chain left over from an earlier failure. Without this a
+    // visitor who was denied the mic, granted it, and clicked again would get
+    // the fixture still appending every 15s underneath their real audio —
+    // with the "recorded sample" banner gone, because that only renders while
+    // status === "replay".
+    stopHardware();
+    // Claim liveness synchronously, after stopHardware() (which clears the
+    // same flag). Every failure path below routes through startReplay(),
+    // which calls stopHardware() and releases it, so a failed attempt cannot
+    // lock the visitor out of starting.
+    runningRef.current = true;
     setError(null);
 
     let stream: MediaStream;
@@ -192,8 +224,15 @@ export function useDemoSession() {
     }
     sessionIdRef.current = createdBody.id;
 
+    // A session is really beginning: clear the previous one. Timestamps are
+    // relative to startedAtRef, so keeping the old panes would restack a
+    // second session beneath the first with its clock restarting at 0:00.
+    setChunks([]);
+    setBatches([]);
+    setMessages([]);
+    setElapsed(0);
+
     startedAtRef.current = Date.now();
-    runningRef.current = true;
     tickRef.current = setInterval(
       () => setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000)),
       1000,
@@ -223,8 +262,11 @@ export function useDemoSession() {
     };
 
     runSegment();
-    setStatus("recording");
-  }, [sendSegment, startReplay]);
+    // Guarded for the same reason as finding 1: if the MediaRecorder
+    // constructor threw, runSegment() already degraded to replay and this
+    // would paint "recording" over it, hiding the disclosure banner.
+    if (runningRef.current) setStatus("recording");
+  }, [sendSegment, startReplay, stopHardware]);
 
   const stop = useCallback(async () => {
     stopHardware();
