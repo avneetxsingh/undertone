@@ -7,42 +7,17 @@
 }
 
 .architecture h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
   font-size: 32px;
   margin: 8px 0 12px;
+  color: var(--text);
 }
 
 .architecture-intro {
   max-width: 640px;
   color: var(--text-muted);
   margin-bottom: 8px;
-}
-
-.architecture-home-link {
-  font-weight: 700;
-  color: var(--text);
-}
-
-.architecture-home-link:hover {
-  text-decoration: none;
-  color: var(--accent);
-}
-
-/* ── Header (mirrors the landing page / docs header) ─ */
-
-.architecture .site-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 0;
-}
-
-.architecture .site-header nav a {
-  margin-left: 20px;
-  color: var(--text-muted);
-}
-
-.architecture .site-header nav a:hover {
-  color: var(--accent);
 }
 
 /* ── Sections ──────────────────────────────────────── */
@@ -54,8 +29,11 @@
 }
 
 .architecture-section h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
   font-size: 22px;
   margin: 0 0 16px;
+  color: var(--text);
 }
 
 .architecture-section p {
@@ -76,6 +54,11 @@
 
 .lifecycle-list li {
   margin-bottom: 14px;
+}
+
+.lifecycle-list li strong {
+  font-family: var(--font-mono);
+  color: var(--text);
 }
 
 /* ── Tables ────────────────────────────────────────── */

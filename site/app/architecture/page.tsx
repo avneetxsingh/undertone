@@ -10,7 +10,7 @@ export default function ArchitecturePage() {
   return (
     <main className="architecture">
       <header className="site-header">
-        <Link href="/" className="architecture-home-link">
+        <Link href="/" className="wordmark">
           Undertone
         </Link>
         <nav>
