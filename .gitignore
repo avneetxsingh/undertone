@@ -11,4 +11,5 @@ CLAUDE.md
 # local tooling artifacts
 /docs/
 graphify-out/
+.superpowers/
 .DS_Store
