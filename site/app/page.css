@@ -6,7 +6,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .pane-header {
@@ -59,7 +59,7 @@
   line-height: 1.6;
   color: var(--text-muted);
   margin-bottom: 20px;
-  background: var(--bg-subtle);
+  background: var(--surface);
 }
 
 /* ── Transcript pane ───────────────────────────────── */
@@ -68,7 +68,7 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #dc2626;
+  color: var(--danger);
   letter-spacing: 0.03em;
 }
 
@@ -98,14 +98,14 @@
 }
 
 .mic-circle.active {
-  background: #dc2626;
+  background: var(--danger);
 }
 
 .mic-circle-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--on-danger);
 }
 
 .mic-circle.active .mic-circle-dot {
@@ -125,7 +125,7 @@
 
 .recording-error {
   font-size: 13px;
-  color: #dc2626;
+  color: var(--danger);
   margin: 0 0 14px;
   line-height: 1.5;
 }
@@ -150,38 +150,6 @@
 
 /* ── Suggestions pane ──────────────────────────────── */
 
-.refresh-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.auto-refresh-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.refresh-btn {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 5px 12px;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.refresh-btn:hover:not(:disabled) {
-  color: var(--accent);
-  border-color: var(--accent-border);
-}
-
-.refresh-btn:disabled {
-  opacity: 0.5;
-}
-
 .batch {
   margin-bottom: 24px;
 }
@@ -199,13 +167,32 @@
   display: block;
   width: 100%;
   text-align: left;
-  background: var(--bg-subtle);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 11px 13px;
   margin-bottom: 8px;
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
+  animation: suggestion-in 240ms ease-out both;
+}
+
+@keyframes suggestion-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion-card {
+    animation: none;
+  }
 }
 
 .suggestion-card:hover {
@@ -277,12 +264,12 @@
 
 .message.user .bubble {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-bottom-right-radius: 3px;
 }
 
 .message.assistant .bubble {
-  background: var(--bg-subtle);
+  background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
   border-bottom-left-radius: 3px;
@@ -322,7 +309,7 @@
   border-radius: 20px;
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
   font-weight: 600;
   transition: opacity 0.15s;
@@ -396,8 +383,15 @@
   padding: 0 32px;
 }
 
-.demo-stage { margin-bottom: 64px; }
-.demo-status { font-size: 13px; opacity: 0.7; margin-bottom: 12px; }
+.demo-stage {
+  margin-bottom: 64px;
+}
+
+.demo-status {
+  font-size: 13px;
+  opacity: 0.7;
+  margin-bottom: 12px;
+}
 
 /* Fixed: was `background: #2a2a2a` with no token, which rendered a dark box
    with near-black text in light mode. */
@@ -452,8 +446,19 @@
   text-decoration: none;
 }
 
-.columns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; height: 560px; }
-@media (max-width: 900px) { .columns { grid-template-columns: 1fr; height: auto; } }
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  height: 560px;
+}
+
+@media (max-width: 900px) {
+  .columns {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
 
 @media (max-width: 720px) {
   .page {

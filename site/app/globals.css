@@ -14,6 +14,9 @@
   --accent: #7c3aed;
   --accent-subtle: rgba(124, 58, 237, 0.08);
   --accent-border: rgba(124, 58, 237, 0.3);
+  --danger: #dc2626;
+  --on-accent: #ffffff;
+  --on-danger: #ffffff;
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
   --font-serif: Charter, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   --font-sans: system-ui, -apple-system, sans-serif;
@@ -32,6 +35,9 @@
     --accent: #a78bfa;
     --accent-subtle: rgba(167, 139, 250, 0.12);
     --accent-border: rgba(167, 139, 250, 0.35);
+    --danger: #f87171;
+    --on-accent: #14120f;
+    --on-danger: #ffffff;
     --shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
   }
 }
