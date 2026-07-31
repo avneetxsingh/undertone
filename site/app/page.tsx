@@ -4,9 +4,9 @@ import "./page.css";
 
 export default function Home() {
   return (
-    <main className="landing">
+    <main className="page">
       <header className="site-header">
-        <h1>Undertone</h1>
+        <span className="wordmark">Undertone</span>
         <nav>
           <Link href="/docs">API docs</Link>
           <Link href="/architecture">Architecture</Link>
@@ -16,17 +16,23 @@ export default function Home() {
         </nav>
       </header>
 
-      <section className="hero">
-        <h2>Talk. Watch it think.</h2>
-        <p>
+      <section className="cover">
+        <h1 className="cover-title">Talk. Watch it think.</h1>
+        <p className="cover-deck">
           Undertone listens to a conversation as it happens and surfaces three suggestions for what
           to say next. No account, no API key — this demo runs on the live platform.
         </p>
-        <DemoStage />
+        <p className="cover-cue">↓ try it</p>
       </section>
 
-      <section className="explainer">
-        <h3>The suggestion engine is a router, not a prompt</h3>
+      <section className="demo-band">
+        <div className="demo-band-inner">
+          <DemoStage />
+        </div>
+      </section>
+
+      <section className="prose-section">
+        <h2>The suggestion engine is a router, not a prompt</h2>
         <p>
           A generic &quot;give me suggestions&quot; prompt returns generic suggestions. Undertone first
           detects where the conversation is — <strong>opening, middle, or closing</strong> — and what
@@ -47,8 +53,8 @@ export default function Home() {
         </p>
       </section>
 
-      <section className="platform-strip">
-        <h3>Running on a real platform</h3>
+      <section className="prose-section">
+        <h2>Running on a real platform</h2>
         <p>
           Multi-tenant serverless API on AWS: API Gateway, Lambda, DynamoDB single-table, S3, SQS
           with a dead-letter queue, KMS-encrypted per-account keys, and S3 Vectors for cross-session
@@ -56,6 +62,11 @@ export default function Home() {
         </p>
         <Link className="cta" href="/architecture">How it is built →</Link>
       </section>
+
+      <footer className="site-footer">
+        <Link href="/docs">API reference</Link>
+        <Link href="/architecture">How it&rsquo;s built</Link>
+      </footer>
     </main>
   );
 }
