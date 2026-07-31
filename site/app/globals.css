@@ -1,29 +1,36 @@
-/* Design tokens ported from web/app/globals.css. Two deliberate differences:
-   there is no Tailwind import (this app does not use it), and html/body scroll
-   rather than clipping — the original was a fixed-height app shell, this is a
-   landing page. */
+/* Design tokens. This file is the ONLY place a literal colour may appear.
+   Every token is defined in both palettes — a token that exists in one
+   palette but not the other is a bug, and is how light-on-light text and the
+   old hardcoded .replay-banner both happened. */
 
 :root {
-  --bg: #ffffff;
-  --bg-subtle: #f7f7f9;
-  --border: #e5e4e7;
-  --text-muted: #6b6375;
-  --text: #08060d;
+  --bg: #fbfaf8;
+  --bg-band: #f5f1ea;
+  --surface: #ffffff;
+  --border: #e6e1d8;
+  --text: #1a1a1a;
+  --text-muted: #6b6459;
+  --text-faint: #a89f92;
   --accent: #7c3aed;
   --accent-subtle: rgba(124, 58, 237, 0.08);
   --accent-border: rgba(124, 58, 237, 0.3);
   --shadow: 0 4px 12px rgba(0, 0, 0, 0.07), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --font-serif: Charter, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f0f14;
-    --bg-subtle: #18181f;
-    --border: #26262f;
-    --text-muted: #8b8a96;
-    --text: #f0eff4;
+    --bg: #14120f;
+    --bg-band: #1a1713;
+    --surface: #211d17;
+    --border: #2b2721;
+    --text: #f2ede4;
+    --text-muted: #a89f92;
+    --text-faint: #7d7568;
     --accent: #a78bfa;
-    --accent-subtle: rgba(167, 139, 250, 0.1);
+    --accent-subtle: rgba(167, 139, 250, 0.12);
     --accent-border: rgba(167, 139, 250, 0.35);
     --shadow: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
   }
@@ -40,9 +47,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -58,4 +65,36 @@ a:hover {
 button {
   font-family: inherit;
   cursor: pointer;
+}
+
+/* Shared site header — one definition for all three pages. Tasks 3, 5 and 6
+   delete their local copies. */
+
+.site-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 28px 0;
+  font-family: var(--font-sans);
+}
+
+.site-header .wordmark {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.site-header nav a {
+  margin-left: 22px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.site-header nav a:hover {
+  color: var(--accent);
+  text-decoration: none;
 }
