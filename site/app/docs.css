@@ -7,42 +7,17 @@
 }
 
 .docs h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
   font-size: 32px;
   margin: 8px 0 12px;
+  color: var(--text);
 }
 
 .docs-intro {
   max-width: 640px;
   color: var(--text-muted);
   margin-bottom: 8px;
-}
-
-.docs-home-link {
-  font-weight: 700;
-  color: var(--text);
-}
-
-.docs-home-link:hover {
-  text-decoration: none;
-  color: var(--accent);
-}
-
-/* ── Header (mirrors the landing page header) ─────── */
-
-.docs .site-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 24px 0;
-}
-
-.docs .site-header nav a {
-  margin-left: 20px;
-  color: var(--text-muted);
-}
-
-.docs .site-header nav a:hover {
-  color: var(--accent);
 }
 
 /* ── Sections ──────────────────────────────────────── */
@@ -54,13 +29,19 @@
 }
 
 .docs-section h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
   font-size: 22px;
   margin: 0 0 16px;
+  color: var(--text);
 }
 
 .docs-section h3 {
+  font-family: var(--font-serif);
+  font-weight: 400;
   font-size: 15px;
   margin: 28px 0 10px;
+  color: var(--text);
 }
 
 .docs-section p {
@@ -75,7 +56,7 @@
 /* ── Code blocks ───────────────────────────────────── */
 
 .code-block {
-  background: var(--bg-subtle);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px 16px;
@@ -85,7 +66,7 @@
 }
 
 .code-block code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   white-space: pre;
 }
 
@@ -104,6 +85,7 @@
 .limits-table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-mono);
   font-size: 13px;
 }
 
@@ -137,15 +119,32 @@
 /* ── Method badges ─────────────────────────────────── */
 
 .method-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
   border-radius: 4px;
-  background: var(--accent-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.method-badge.get {
+  border-color: var(--accent-border);
   color: var(--accent);
-  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+}
+
+.method-badge.post {
+  border-color: var(--accent-border);
+  color: var(--text);
+  background: var(--accent-subtle);
+}
+
+.method-badge.put {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--bg-band);
 }
 
 /* ── Endpoint detail blocks ────────────────────────── */

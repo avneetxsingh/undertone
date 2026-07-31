@@ -10,7 +10,7 @@ export default function DocsPage() {
   return (
     <main className="docs">
       <header className="site-header">
-        <Link href="/" className="docs-home-link">
+        <Link href="/" className="wordmark">
           Undertone
         </Link>
         <nav>
