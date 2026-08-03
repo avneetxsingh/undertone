@@ -1,6 +1,7 @@
 import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
@@ -67,6 +68,12 @@ export class UndertoneStack extends Stack {
       deadLetterQueue: { queue: dlq, maxReceiveCount: 3 },
     });
 
+    const webhookDlq = new sqs.Queue(this, "WebhookDlq", { retentionPeriod: Duration.days(14) });
+    const webhookQueue = new sqs.Queue(this, "WebhookQueue", {
+      visibilityTimeout: Duration.seconds(120),
+      deadLetterQueue: { queue: webhookDlq, maxReceiveCount: 3 },
+    });
+
     const makeFn = (name: string, entry: string, timeoutSeconds = 10) =>
       new NodejsFunction(this, name, {
         entry: path.join(here, `../../services/src/handlers/${entry}.ts`),
@@ -94,10 +101,25 @@ export class UndertoneStack extends Stack {
     const embedWorker = makeFn("EmbedWorkerFn", "embedWorker", 60);
     const search = makeFn("SearchFn", "search", 15);
     const chat = makeFn("ChatFn", "chat", 60);
+    const postWebhook = makeFn("PostWebhookFn", "postWebhook");
+    const listWebhooksFn = makeFn("ListWebhooksFn", "listWebhooks");
+    const getWebhookFn = makeFn("GetWebhookFn", "getWebhook");
+    const patchWebhook = makeFn("PatchWebhookFn", "patchWebhook");
+    const deleteWebhookFn = makeFn("DeleteWebhookFn", "deleteWebhook");
+    const webhookSender = makeFn("WebhookSenderFn", "webhookSender", 30);
 
     postChunk.addEnvironment("EMBED_QUEUE_URL", embedQueue.queueUrl);
     embedWorker.addEventSource(new SqsEventSource(embedQueue, { batchSize: 10 }));
     embedQueue.grantSendMessages(postChunk);
+
+    // batchSize is deliberately small: retries are per message, so one poisoned
+    // subscriber URL dead-letters on its own instead of dragging a large batch
+    // through three delivery attempts with it.
+    webhookSender.addEventSource(new SqsEventSource(webhookQueue, { batchSize: 5 }));
+    for (const f of [createSession, postChunk, endSession]) {
+      f.addEnvironment("WEBHOOK_QUEUE_URL", webhookQueue.queueUrl);
+      webhookQueue.grantSendMessages(f);
+    }
 
     // Least privilege: everyone reads (auth GSI lookup); only mutating handlers write.
     for (const f of [createSession, getSession, listSessions, endSession, putGroqKey, postChunk]) {
@@ -116,6 +138,23 @@ export class UndertoneStack extends Stack {
     // search only needs the auth GSI lookup, but requireAccount runs in EVERY
     // handler — a function without table read cannot authenticate at all.
     table.grantReadData(search);
+
+    // Webhook handlers: all read (auth + subscription lookup); only the mutating
+    // ones plus the sender (which records delivery status) write.
+    for (const f of [postWebhook, listWebhooksFn, getWebhookFn, patchWebhook, deleteWebhookFn, webhookSender])
+      table.grantReadData(f);
+    for (const f of [postWebhook, patchWebhook, deleteWebhookFn, webhookSender]) table.grantWriteData(f);
+    groqKms.grantEncrypt(postWebhook);
+    groqKms.grantEncrypt(patchWebhook);
+    groqKms.grantDecrypt(webhookSender);
+
+    new cloudwatch.Alarm(this, "WebhookDlqAlarm", {
+      metric: webhookDlq.metricApproximateNumberOfMessagesVisible({ period: Duration.minutes(5) }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      alarmDescription: "Webhook deliveries are landing in the DLQ",
+    });
 
     // Embeddings run through Gemini's HTTPS API (see services/src/lib/embeddings.ts),
     // not a managed AWS model, so no Bedrock IAM grant is needed — the API key is
@@ -155,11 +194,17 @@ export class UndertoneStack extends Stack {
     route("/v1/account/groq-key", apigwv2.HttpMethod.PUT, putGroqKey);
     route("/v1/search", apigwv2.HttpMethod.GET, search);
     route("/v1/chat", apigwv2.HttpMethod.POST, chat);
+    route("/v1/webhooks", apigwv2.HttpMethod.POST, postWebhook);
+    route("/v1/webhooks", apigwv2.HttpMethod.GET, listWebhooksFn);
+    route("/v1/webhooks/{id}", apigwv2.HttpMethod.GET, getWebhookFn);
+    route("/v1/webhooks/{id}", apigwv2.HttpMethod.PATCH, patchWebhook);
+    route("/v1/webhooks/{id}", apigwv2.HttpMethod.DELETE, deleteWebhookFn);
 
     new CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new CfnOutput(this, "TableName", { value: table.tableName });
     new CfnOutput(this, "BucketName", { value: audio.bucketName });
     new CfnOutput(this, "VectorBucketName", { value: vectorBucketName });
     new CfnOutput(this, "EmbedQueueUrl", { value: embedQueue.queueUrl });
+    new CfnOutput(this, "WebhookQueueUrl", { value: webhookQueue.queueUrl });
   }
 }

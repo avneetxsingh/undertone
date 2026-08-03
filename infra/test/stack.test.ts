@@ -18,14 +18,14 @@ describe("UndertoneStack", () => {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true },
     });
   });
-  test("eight API routes", () => {
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 8);
+  test("thirteen API routes", () => {
+    template.resourceCountIs("AWS::ApiGatewayV2::Route", 13);
   });
   test("a KMS key exists for groq keys", () => {
     expect(Object.keys(template.findResources("AWS::KMS::Key")).length).toBe(1);
   });
 
-  test("exact set of eight route keys (no duplicates, no missing paths)", () => {
+  test("exact set of thirteen route keys (no duplicates, no missing paths)", () => {
     const routes = template.findResources("AWS::ApiGatewayV2::Route");
     const routeKeys = Object.values(routes).map(
       (r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey,
@@ -40,6 +40,11 @@ describe("UndertoneStack", () => {
         "PUT /v1/account/groq-key",
         "GET /v1/search",
         "POST /v1/chat",
+        "POST /v1/webhooks",
+        "GET /v1/webhooks",
+        "GET /v1/webhooks/{id}",
+        "PATCH /v1/webhooks/{id}",
+        "DELETE /v1/webhooks/{id}",
       ].sort(),
     );
   });
@@ -98,35 +103,53 @@ describe("UndertoneStack", () => {
 
     // postChunk is the only handler that writes audio chunks to S3.
     expect(policiesContaining("s3:PutObject")).toHaveLength(1);
-    // putGroqKey is the only handler that encrypts a stored Groq key.
-    expect(policiesContaining("kms:Encrypt")).toHaveLength(1);
+    // putGroqKey encrypts the stored Groq key; postWebhook and patchWebhook
+    // encrypt webhook signing secrets.
+    expect(policiesContaining("kms:Encrypt")).toHaveLength(3);
     // postChunk (to read a decrypted key when calling Groq), endSession (to decrypt
-    // for the final Groq call), and chat (to decrypt for its own Groq call) are the
-    // only three decrypters.
-    expect(policiesContaining("kms:Decrypt")).toHaveLength(3);
+    // for the final Groq call), chat (to decrypt for its own Groq call), and
+    // webhookSender (to decrypt a signing secret per delivery).
+    expect(policiesContaining("kms:Decrypt")).toHaveLength(4);
   });
 
-  test("embed queue with dlq redrive", () => {
-    template.resourceCountIs("AWS::SQS::Queue", 2);
+  test("embed and webhook queues each have a dlq redrive", () => {
+    template.resourceCountIs("AWS::SQS::Queue", 4);
     const queues = template.findResources("AWS::SQS::Queue");
     const redrives = Object.values(queues).filter(
       (q) => (q as { Properties?: { RedrivePolicy?: unknown } }).Properties?.RedrivePolicy,
     );
-    expect(redrives.length).toBe(1);
-    expect(
-      (redrives[0] as { Properties: { RedrivePolicy: { maxReceiveCount: number } } }).Properties.RedrivePolicy
-        .maxReceiveCount,
-    ).toBe(3);
+    expect(redrives.length).toBe(2);
+    for (const r of redrives)
+      expect(
+        (r as { Properties: { RedrivePolicy: { maxReceiveCount: number } } }).Properties.RedrivePolicy
+          .maxReceiveCount,
+      ).toBe(3);
   });
 
-  test("eight API routes including search and chat", () => {
+  test("webhook dlq has a cloudwatch alarm on message count", () => {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      Namespace: "AWS/SQS",
+      MetricName: "ApproximateNumberOfMessagesVisible",
+    });
+  });
+
+  test("producers can send to the webhook queue", () => {
+    const policies = template.findResources("AWS::IAM::Policy");
+    const withSend = Object.values(policies).filter((p) => JSON.stringify(p).includes("sqs:SendMessage"));
+    // embed send (postChunk) + webhook send (createSession, postChunk, endSession)
+    expect(withSend.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("thirteen API routes including search, chat and webhooks", () => {
     const routes = template.findResources("AWS::ApiGatewayV2::Route");
     const keys = Object.values(routes)
       .map((r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey)
       .sort();
     expect(keys).toContain("GET /v1/search");
     expect(keys).toContain("POST /v1/chat");
-    expect(keys.length).toBe(8);
+    expect(keys).toContain("POST /v1/webhooks");
+    expect(keys).toContain("PATCH /v1/webhooks/{id}");
+    expect(keys.length).toBe(13);
   });
 
   test("cors is configured on the http api", () => {
