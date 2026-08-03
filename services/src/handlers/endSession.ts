@@ -2,6 +2,7 @@ import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { requireAccount } from "../lib/auth";
 import { ddb, tableName } from "../lib/ddb";
+import { emitEvent } from "../lib/emit";
 import { ApiError, errorResponse, json } from "../lib/errors";
 import { chatJson } from "../lib/groq";
 import { getGroqKey } from "../lib/groqKey";
@@ -66,6 +67,12 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       warning = "summary_failed"; // the session still ends — ending must never fail on summary
     }
 
+    await emitEvent(acct.acctId, "session.completed", {
+      id: sessId,
+      status: "ended",
+      summary,
+      actionItems,
+    });
     return json(200, { id: sessId, status: "ended", summary, actionItems, ...(warning ? { warning } : {}) });
   } catch (e) {
     return errorResponse(e);

@@ -6,6 +6,7 @@ import { extFromContentType } from "../lib/audio";
 import { requireAccount } from "../lib/auth";
 import { ddb, tableName } from "../lib/ddb";
 import { embedText } from "../lib/embeddings";
+import { emitEvent } from "../lib/emit";
 import { ApiError, errorResponse, json } from "../lib/errors";
 import { transcribe } from "../lib/groq";
 import { getGroqKey } from "../lib/groqKey";
@@ -114,6 +115,11 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
     } catch (e) {
       console.error("embed enqueue failed (non-fatal)", e); // memory is best-effort; the chunk response must not fail
     }
+
+    // Same discipline as the embed enqueue above: emitEvent swallows its own
+    // failures, so a webhook problem cannot turn a successful chunk into an error.
+    await emitEvent(acct.acctId, "chunk.transcribed", { sessionId: sessId, seq, transcript, createdAt });
+    await emitEvent(acct.acctId, "suggestions.generated", { sessionId: sessId, seq, suggestions, createdAt });
 
     return json(200, { seq, transcript, suggestions, ...(warning ? { warning } : {}) });
   } catch (e) {

@@ -3,6 +3,7 @@ import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulid";
 import { requireAccount } from "../lib/auth";
 import { ddb, tableName } from "../lib/ddb";
+import { emitEvent } from "../lib/emit";
 import { ApiError, errorResponse, json } from "../lib/errors";
 import { acctPk, sessSk } from "../lib/keys";
 
@@ -31,6 +32,12 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       createdAt: new Date().toISOString(),
     };
     await ddb.send(new PutCommand({ TableName: tableName(), Item: item }));
+    await emitEvent(acct.acctId, "session.created", {
+      id,
+      title: item.title,
+      kind: item.kind,
+      createdAt: item.createdAt,
+    });
     return json(201, { id, title: item.title, kind: item.kind, status: item.status, createdAt: item.createdAt });
   } catch (e) {
     return errorResponse(e);
