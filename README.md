@@ -251,7 +251,55 @@ Every request carries `authorization: Bearer ut_live_…`.
 | PUT | `/v1/account/groq-key` | Store the account's Groq key (KMS-encrypted) | shipped |
 | GET | `/v1/search?q=…` | Semantic search across the account's sessions | shipped |
 | POST | `/v1/chat` | Session-grounded deep-dive — `{sessionId, prompt}` → `{reply}` | shipped |
-| CRUD | `/v1/webhooks` | Webhook subscriptions | roadmap |
+| POST | `/v1/webhooks` | Register a subscription — `{url, events[]}`; returns the signing secret once | shipped |
+| GET | `/v1/webhooks` | List subscriptions with delivery status (never secrets) | shipped |
+| GET | `/v1/webhooks/{id}` | One subscription | shipped |
+| PATCH | `/v1/webhooks/{id}` | Update `url`/`events`/`status`, or `rotateSecret` | shipped |
+| DELETE | `/v1/webhooks/{id}` | Remove a subscription | shipped |
+
+### Webhooks
+
+Register an HTTPS endpoint and Undertone calls **you** when something happens,
+rather than making you poll.
+
+| Event | Emitted by | Frequency |
+|---|---|---|
+| `session.created` | `createSession` | once per session |
+| `chunk.transcribed` | `postChunk` | every chunk |
+| `suggestions.generated` | `postChunk` | every chunk |
+| `session.completed` | `endSession` | once per session |
+
+Each subscription carries an `events[]` allow-list, so the per-chunk firehose
+reaches only subscribers who asked for it.
+
+**Signing.** Every delivery carries `X-Undertone-Signature: t=<unix>,v1=<hmac>`,
+alongside `X-Undertone-Event` and `X-Undertone-Delivery`. The timestamp is
+signed *with* the body, so a captured delivery cannot be replayed under a fresh
+`t`:
+
+```js
+const [t, v1] = sig.split(",").map((p) => p.split("=")[1]);
+const expected = crypto.createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+if (crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected))) { /* trusted */ }
+```
+
+The secret is a `whsec_` value returned **once** at create (and once more on
+`rotateSecret`), stored KMS-encrypted, and never returned by list or get. It is
+never placed on the delivery queue — the sender re-loads and decrypts it itself.
+
+**SSRF guard.** Subscription URLs must be HTTPS and must not resolve to
+private, loopback, link-local or cloud-metadata ranges — including
+`169.254.169.254`. The check runs at registration *and again at send time*,
+because a hostname that passed once can be re-pointed at an internal address
+afterwards.
+
+**Delivery.** Deliveries go through SQS to a dedicated sender. A non-2xx or a
+5-second timeout is retried; after three attempts the message lands in a
+dead-letter queue with a CloudWatch alarm. The sender re-reads the subscription
+on every attempt, so deleting or pausing one takes effect on in-flight
+deliveries. Each subscription records `lastStatus`, `lastDeliveryAt` and
+`lastError` — written *before* the failure is re-thrown, so a failed delivery is
+both recorded and retried.
 
 Errors are uniform: `{"error": {"code": "…", "message": "…"}}` with
 meaningful status codes — `401` unauthorized, `402` missing/invalid Groq key,
@@ -486,12 +534,16 @@ idempotent so this is wasteful rather than incorrect.
 
 ## Roadmap
 
-**Phase 3 — platform surface.** The public demo application is shipped: it is
-[live](https://undertone-two.vercel.app) and is the platform's first customer.
-Still ahead: webhook subscriptions with HMAC-signed delivery (SQS-backed,
-dead-lettered), a developer dashboard for key and session management, and
-per-account rate limiting on the platform itself — today's limits are
-enforced by the demo, not by the API.
+**Phase 3 — platform surface.** Two of three cycles are shipped: webhook
+subscriptions with HMAC-signed, SQS-backed, dead-lettered delivery (3a), and
+the public demo application (3b), which is [live](https://undertone-two.vercel.app)
+and is the platform's first customer. Still ahead: a developer dashboard for
+key, session and webhook management, and per-account rate limiting on the
+platform itself — today's limits are enforced by the demo, not by the API.
+
+**Backlog carried from 3a.** `reportBatchItemFailures` on the webhook sender
+(currently a whole-batch retry at `batchSize` 5), a single subscription query
+for `postChunk`'s two events instead of two, and an event-replay endpoint.
 
 **Beyond.** Streaming chat via Lambda Function URLs, speaker diarization,
 and richer post-meeting artifacts.

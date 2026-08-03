@@ -16,6 +16,26 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`SMOKE FAIL: ${msg}`);
 }
 
+// Registered before the session so both session.created and session.completed
+// fan out to it. The receiver is the public demo's own session route, which
+// answers POST with 201 — no third-party endpoint is involved.
+const RECEIVER = "https://undertone-two.vercel.app/api/demo/session";
+const webhook = await call("POST", "/v1/webhooks", {
+  body: JSON.stringify({ url: RECEIVER, events: ["session.created", "session.completed"] }),
+  headers: { "content-type": "application/json" },
+});
+assert(typeof webhook.id === "string" && typeof webhook.secret === "string", "webhook create returns id + secret");
+assert(String(webhook.secret).startsWith("whsec_"), "secret has whsec_ prefix");
+console.log(`✓ registered webhook ${webhook.id}`);
+
+const listedHooks = await call("GET", "/v1/webhooks");
+assert(
+  (listedHooks.webhooks as { whookId?: string }[]).some((w) => w.whookId === webhook.id),
+  "webhook appears in list",
+);
+assert(!JSON.stringify(listedHooks.webhooks).includes("secretEnc"), "list never leaks secretEnc");
+console.log("✓ webhook listed without any secret material");
+
 const session = await call("POST", "/v1/sessions", {
   body: JSON.stringify({ title: "smoke test" }),
   headers: { "content-type": "application/json" },
@@ -74,4 +94,29 @@ console.log("✓ chat deep-dive works");
 
 const list = await call("GET", "/v1/sessions");
 assert((list.sessions as { sessId?: string }[]).some((s) => s.sessId === session.id), "session in list");
-console.log("✓ list works\nSMOKE PASS");
+console.log("✓ list works");
+
+// Delivery is asynchronous: emit → SQS → sender. Give it a moment to land.
+await new Promise((r) => setTimeout(r, 10000));
+const afterDelivery = await call("GET", `/v1/webhooks/${webhook.id}`);
+const { lastStatus, lastError, lastDeliveryAt } = afterDelivery as {
+  lastStatus?: string;
+  lastError?: string;
+  lastDeliveryAt?: string;
+};
+// lastDeliveryAt is the hard assertion: it can only be set by the sender having
+// loaded the subscription, passed the SSRF re-check, decrypted the secret and
+// actually made a signed request. Whether the receiver answered 2xx is a
+// property of the receiver — and this one deliberately rate-limits itself
+// (2 sessions per IP per hour), so requiring "delivered" would make the smoke
+// flaky rather than more truthful.
+assert(typeof lastDeliveryAt === "string", "webhook delivery was attempted and recorded");
+if (lastStatus === "delivered") {
+  console.log("✓ webhook delivered and status recorded");
+} else {
+  console.log(`⚠ webhook delivery attempted but not 2xx (lastError=${lastError}) — receiver-side, pipeline ran`);
+}
+
+const delRes = await fetch(`${API}/v1/webhooks/${webhook.id}`, { method: "DELETE", headers: h });
+assert(delRes.status === 204, "webhook delete returns 204"); // 204 has no body, so `call` cannot parse it
+console.log("✓ webhook deleted\nSMOKE PASS");
