@@ -439,6 +439,48 @@ describe("useDemoSession", () => {
     }
   });
 
+  test("a recorder that throws on start() degrades to replay instead of latching the mic", async () => {
+    // getUserMedia succeeded, but the stream died before the recorder could
+    // start — a permission revoked from the browser's site controls, or a USB
+    // mic unplugged. The constructor accepts the dead stream; start() is where
+    // it surfaces.
+    class DeadStreamRecorder extends FakeMediaRecorder {
+      start(): never {
+        throw new DOMException("The MediaStream is inactive", "InvalidStateError");
+      }
+    }
+    vi.stubGlobal("MediaRecorder", DeadStreamRecorder);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/api/demo/session")
+          ? new Response(JSON.stringify({ id: "s1" }), { status: 201 })
+          : new Response(JSON.stringify({ transcript: "", suggestions: [] }), { status: 200 }),
+      ),
+    );
+    const { result } = renderHook(() => useDemoSession());
+
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(result.current.status).toBe("replay");
+    expect(result.current.error).toMatch(/recorded session/i);
+    await waitFor(() => expect(result.current.chunks.length).toBeGreaterThan(0));
+
+    // And the re-entry guard was released, so the visitor is not locked out:
+    // clicking again with a working recorder still reaches a live session.
+    vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
+    await act(async () => {
+      await result.current.start();
+    });
+    expect(result.current.status).toBe("recording");
+
+    await act(async () => {
+      await result.current.stop();
+    });
+  });
+
   test("unmounting while recording stops the media tracks and clears the elapsed interval", async () => {
     vi.stubGlobal(
       "fetch",

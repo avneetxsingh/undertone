@@ -255,7 +255,20 @@ export function useDemoSession() {
       };
       recorder.onerror = () =>
         startReplay("Recording stopped unexpectedly — showing a recorded session instead.");
-      recorder.start();
+      // start() throws if the stream died between getUserMedia and here — a
+      // permission revoked from the browser's site controls, or a mic
+      // unplugged. Outside a try it escapes runSegment() and start() entirely,
+      // so runningRef stays latched true while status never reaches
+      // "recording": the mic button dies with no route to replay and no way to
+      // retry. Degrading here matches every other failure path. startReplay's
+      // stopHardware() finds this recorder inactive, so it detaches the
+      // handlers without calling stop() on it.
+      try {
+        recorder.start();
+      } catch {
+        startReplay("Recording could not start — showing a recorded session instead.");
+        return;
+      }
       setTimeout(() => {
         if (recorder.state === "recording") recorder.stop();
       }, SEGMENT_MS);
