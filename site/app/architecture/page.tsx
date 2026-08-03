@@ -80,6 +80,11 @@ export default function ArchitecturePage() {
             <strong>Enqueue for embedding.</strong> An SQS message carrying the transcript is sent so a
             separate worker Lambda can embed and index it asynchronously.
           </li>
+          <li>
+            <strong>Fan out to webhook subscribers.</strong> Any active subscription that asked for{" "}
+            <code>chunk.transcribed</code> or <code>suggestions.generated</code> gets one queue message per
+            subscription, for a second worker to deliver.
+          </li>
         </ol>
         <p>
           The response carries the transcript and suggestions back in the same round trip that started this
@@ -107,7 +112,39 @@ export default function ArchitecturePage() {
         </p>
       </section>
 
-      {/* ── 2. Design decisions ────────────────────────────── */}
+      {/* ── 2. Webhook fan-out ─────────────────────────────── */}
+      <section className="architecture-section">
+        <h2>Webhook fan-out</h2>
+        <p>
+          The lifecycle above describes the platform answering a caller. Webhooks are the other direction:
+          the platform calling out. Four events fire &mdash; <code>session.created</code>,{" "}
+          <code>chunk.transcribed</code>, <code>suggestions.generated</code> and{" "}
+          <code>session.completed</code> &mdash; and each subscription declares which of them it wants.
+        </p>
+        <p>
+          Fan-out happens at emit time. The producing handler lists the account&apos;s matching active
+          subscriptions and puts one message on a dedicated queue per subscription. That message carries the
+          event and the subscription id, and deliberately never carries the signing secret. A separate sender
+          Lambda consumes the queue, re-loads the subscription fresh, re-checks the destination against the
+          SSRF rules, decrypts the secret through KMS, and POSTs a signed body with a five-second timeout.
+        </p>
+        <p>
+          Reloading rather than trusting the queue message is what makes a delete or a pause take effect on
+          deliveries already in flight. A non-2xx or a timeout is re-thrown so the queue redelivers; after
+          three attempts the message lands in a dead-letter queue that raises a CloudWatch alarm. Delivery
+          status is written to the subscription <em>before</em> that re-throw, so a failed delivery is
+          recorded <em>and</em> retried instead of one outcome displacing the other.
+        </p>
+        <p className="architecture-note">
+          Emitting is best-effort in exactly the same sense as the embed enqueue above: the call is wrapped
+          so a webhook problem can never turn a successful API response into an error. A subscriber being
+          down is the subscriber&apos;s problem, not the caller&apos;s. The batch size on the sender is
+          deliberately small, so one broken destination dead-letters on its own rather than dragging a large
+          batch through three delivery attempts with it.
+        </p>
+      </section>
+
+      {/* ── 3. Design decisions ────────────────────────────── */}
       <section className="architecture-section">
         <h2>Design decisions</h2>
         <p>The AWS services underneath the request lifecycle above, and why each one was chosen:</p>
@@ -144,15 +181,28 @@ export default function ArchitecturePage() {
               </tr>
               <tr>
                 <td><strong>SQS + DLQ</strong></td>
-                <td>Decouples embedding from the request path; 3 retries then dead-letter</td>
                 <td>
-                  Embedding is slow and failure-prone; the user&apos;s response must never wait on it, and
-                  failed jobs must not vanish silently
+                  Two queues, each with 3 retries then dead-letter: one decouples embedding from the request
+                  path, one carries webhook deliveries
+                </td>
+                <td>
+                  Embedding is slow and failure-prone and webhook destinations are outside our control; the
+                  user&apos;s response must never wait on either, and failed jobs must not vanish silently
+                </td>
+              </tr>
+              <tr>
+                <td><strong>CloudWatch</strong></td>
+                <td>Alarms when the webhook dead-letter queue is non-empty</td>
+                <td>
+                  A delivery that has exhausted its retries is a real failure someone has to know about, not
+                  a line in a log nobody reads
                 </td>
               </tr>
               <tr>
                 <td><strong>KMS</strong></td>
-                <td>Encrypts each account&apos;s Groq API key at rest</td>
+                <td>
+                  Encrypts each account&apos;s Groq API key and each webhook signing secret at rest
+                </td>
                 <td>Third-party credentials must never sit in plaintext in a database</td>
               </tr>
               <tr>
@@ -168,7 +218,7 @@ export default function ArchitecturePage() {
         </div>
       </section>
 
-      {/* ── 3. The embeddings story ────────────────────────── */}
+      {/* ── 4. The embeddings story ────────────────────────── */}
       <section className="architecture-section">
         <h2>The embeddings story</h2>
         <p>

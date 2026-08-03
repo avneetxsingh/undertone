@@ -96,6 +96,31 @@ export default function DocsPage() {
                 <td><code>/v1/chat</code></td>
                 <td>Ask a question grounded in one session&apos;s transcript and summary.</td>
               </tr>
+              <tr>
+                <td><span className="method-badge post">POST</span></td>
+                <td><code>/v1/webhooks</code></td>
+                <td>Register a subscription. Returns the signing secret once.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge get">GET</span></td>
+                <td><code>/v1/webhooks</code></td>
+                <td>List subscriptions with their delivery status. Never returns secrets.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge get">GET</span></td>
+                <td><code>/v1/webhooks/&#123;id&#125;</code></td>
+                <td>Fetch one subscription.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge patch">PATCH</span></td>
+                <td><code>/v1/webhooks/&#123;id&#125;</code></td>
+                <td>Change the url, events or status &mdash; or rotate the signing secret.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge delete">DELETE</span></td>
+                <td><code>/v1/webhooks/&#123;id&#125;</code></td>
+                <td>Remove a subscription.</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -291,7 +316,154 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
         </pre>
       </section>
 
-      {/* ── 3. Errors ──────────────────────────────────────── */}
+      {/* ── 3. Webhooks ────────────────────────────────────── */}
+      <section className="docs-section">
+        <h2>Webhooks</h2>
+        <p>
+          Register an HTTPS endpoint and the platform calls <em>you</em> when something happens, instead of
+          making you poll. Four events fire, and each subscription declares which of them it wants.
+        </p>
+
+        <div className="table-scroll">
+          <table className="endpoint-table">
+            <thead>
+              <tr>
+                <th>Event</th>
+                <th>Fires</th>
+                <th>Frequency</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>session.created</code></td>
+                <td>A session is opened</td>
+                <td>Once per session</td>
+              </tr>
+              <tr>
+                <td><code>chunk.transcribed</code></td>
+                <td>An audio segment is transcribed</td>
+                <td>Every chunk</td>
+              </tr>
+              <tr>
+                <td><code>suggestions.generated</code></td>
+                <td>New suggestions are produced</td>
+                <td>Every chunk</td>
+              </tr>
+              <tr>
+                <td><code>session.completed</code></td>
+                <td>A session ends, summary ready</td>
+                <td>Once per session</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          The two per-chunk events are a firehose, which is why the <code>events</code> allow-list exists
+          &mdash; a subscriber that only cares about completed meetings never sees them.
+        </p>
+
+        <div className="endpoint-detail">
+          <h3>
+            <span className="method-badge post">POST</span> <code>/v1/webhooks</code>
+          </h3>
+          <p>Request body:</p>
+          <pre className="code-block">
+            <code>{`{ "url": "https://…", "events": ["session.completed"] }`}</code>
+          </pre>
+          <p>Response &mdash; <code>201</code>:</p>
+          <pre className="code-block">
+            <code>{`{
+  "id": "01J…",
+  "url": "https://…",
+  "events": ["session.completed"],
+  "status": "active",
+  "createdAt": "2026-08-03T18:11:24.594Z",
+  "secret": "whsec_…"
+}`}</code>
+          </pre>
+          <p className="endpoint-errors">
+            Errors: <code>400 invalid_json</code>, <code>422 invalid_url</code>,{" "}
+            <code>422 invalid_events</code>.
+          </p>
+        </div>
+
+        <div className="endpoint-detail">
+          <h3>
+            <span className="method-badge patch">PATCH</span> <code>/v1/webhooks/&#123;id&#125;</code>
+          </h3>
+          <p>Every field is optional. Send only what changes:</p>
+          <pre className="code-block">
+            <code>{`{ "url": "https://…", "events": […], "status": "paused", "rotateSecret": true }`}</code>
+          </pre>
+          <p>
+            <code>rotateSecret</code> issues a replacement and returns it once, in the same shape as create.
+            A <code>paused</code> subscription stops receiving deliveries without being deleted.
+          </p>
+          <p className="endpoint-errors">
+            Errors: <code>400 invalid_json</code>, <code>422 invalid_url</code>,{" "}
+            <code>422 invalid_events</code>, <code>422 invalid_status</code>,{" "}
+            <code>404 webhook_not_found</code>.
+          </p>
+        </div>
+
+        <h3>Verifying a delivery</h3>
+        <p>Every delivery carries three headers:</p>
+        <pre className="code-block">
+          <code>{`X-Undertone-Signature: t=1754246000,v1=9f86d081…
+X-Undertone-Event:     session.completed
+X-Undertone-Delivery:  01J…`}</code>
+        </pre>
+        <p>
+          The timestamp is signed <em>together with</em> the body, so a captured delivery cannot be replayed
+          later under a fresh <code>t</code> &mdash; changing it invalidates the signature. Verify with the
+          secret you were given at registration:
+        </p>
+        <pre className="code-block curl-block">
+          <code>{`const [t, v1] = sig.split(",").map((p) => p.split("=")[1]);
+const expected = crypto.createHmac("sha256", secret)
+  .update(\`\${t}.\${rawBody}\`)
+  .digest("hex");
+
+if (crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected))) {
+  // trusted — this really came from Undertone
+}`}</code>
+        </pre>
+        <p>
+          Sign over the <strong>raw</strong> body, before any JSON parsing. Re-serialising first will change
+          the bytes and the signature will not match.
+        </p>
+
+        <h3>Secrets</h3>
+        <p>
+          The <code>whsec_</code> secret is returned exactly once at create, and once more if you rotate it.
+          It is stored KMS-encrypted and is never returned by list or get. It is also never placed on the
+          internal delivery queue &mdash; the sender re-loads and decrypts it at send time.
+        </p>
+
+        <h3>What a subscription URL may point at</h3>
+        <p>
+          URLs must be HTTPS, and must not resolve to private, loopback, link-local or cloud-metadata ranges
+          &mdash; <code>169.254.169.254</code> included. That check runs at registration <em>and again on
+          every delivery</em>, because a hostname that passed once can be re-pointed at an internal address
+          afterwards.
+        </p>
+
+        <h3>Retries and delivery status</h3>
+        <p>
+          Deliveries run through a queue to a dedicated sender. A non-2xx response or a 5-second timeout is
+          retried; after three attempts the delivery lands in a dead-letter queue and raises an alarm. The
+          sender re-reads the subscription on every attempt, so deleting or pausing one takes effect even on
+          deliveries already in flight.
+        </p>
+        <p>
+          Each subscription records <code>lastStatus</code>, <code>lastDeliveryAt</code> and{" "}
+          <code>lastError</code>, readable from list or get. The status is written <em>before</em> a failure
+          is re-thrown, so a failed delivery is both recorded and retried rather than one displacing the
+          other.
+        </p>
+      </section>
+
+      {/* ── 4. Errors ──────────────────────────────────────── */}
       <section className="docs-section">
         <h2>Errors</h2>
         <p>Every error response uses the same envelope:</p>
@@ -384,6 +556,31 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
                 <td>The embeddings provider (Gemini) failed or is unconfigured.</td>
               </tr>
               <tr>
+                <td>422</td>
+                <td><code>invalid_url</code></td>
+                <td>
+                  A webhook url is not https, is unparseable, or targets a private / loopback /
+                  link-local / metadata address.
+                </td>
+              </tr>
+              <tr>
+                <td>422</td>
+                <td><code>invalid_events</code></td>
+                <td>The <code>events</code> array is empty or names an event that does not exist.</td>
+              </tr>
+              <tr>
+                <td>422</td>
+                <td><code>invalid_status</code></td>
+                <td>
+                  A webhook <code>status</code> other than <code>active</code> or <code>paused</code>.
+                </td>
+              </tr>
+              <tr>
+                <td>404</td>
+                <td><code>webhook_not_found</code></td>
+                <td>No webhook with that id on this account. Another account&apos;s id reads the same way.</td>
+              </tr>
+              <tr>
                 <td>500</td>
                 <td><code>internal</code></td>
                 <td>Unhandled server error; details are logged server-side only.</td>
@@ -393,7 +590,7 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
         </div>
       </section>
 
-      {/* ── 4. Audio format ───────────────────────────────── */}
+      {/* ── 5. Audio format ───────────────────────────────── */}
       <section className="docs-section" id="audio-format">
         <h2>Audio format</h2>
         <p>
@@ -412,7 +609,7 @@ curl -X POST "$UNDERTONE_API/v1/sessions/$SESSION_ID/chunks" \\
         <p>Any other content-type returns <code>422 unsupported_audio_type</code>.</p>
       </section>
 
-      {/* ── 5. Demo limits ─────────────────────────────────── */}
+      {/* ── 6. Demo limits ─────────────────────────────────── */}
       <section className="docs-section">
         <h2>Demo limits</h2>
         <p>
