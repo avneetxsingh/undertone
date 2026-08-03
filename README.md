@@ -77,8 +77,21 @@ changed is everything underneath it.
 
 ## Live deployment
 
-The stack is deployed and running in AWS (`us-east-1`, stack `Undertone-dev`).
-Currently provisioned:
+**Try it: [undertone-two.vercel.app](https://undertone-two.vercel.app)**
+
+A public demo application, deployed on Vercel, consuming this platform as its
+first customer. It captures your microphone in 15-second segments and shows the
+transcript and routed suggestions as they arrive. The demo's own platform
+credentials never reach the browser — it holds its key server-side and proxies
+every call through its own `/api/demo/*` routes.
+
+It is deliberately capped: 20 chunks and 5 chat questions per session, 2
+sessions per IP per hour, 400 chunks per day globally. If a cap is hit, the
+microphone is denied, or the platform is unreachable, the page degrades to a
+recorded sample session behind a banner saying so, rather than failing.
+
+The AWS stack behind it is deployed and running in `us-east-1`, stack
+`Undertone-dev`. Currently provisioned:
 
 | Resource | Count |
 |---|---|
@@ -474,9 +487,11 @@ idempotent so this is wasteful rather than incorrect.
 ## Roadmap
 
 **Phase 3 — platform surface.** Webhook subscriptions with HMAC-signed
-delivery (SQS-backed, dead-lettered), a developer dashboard for key and
-session management, per-account rate limiting, and a public demo application
-consuming the platform as its first customer.
+delivery (SQS-backed, dead-lettered) and the public demo application are
+shipped — the demo is [live](https://undertone-two.vercel.app) and is the
+platform's first customer. Still ahead: a developer dashboard for key and
+session management, and per-account rate limiting on the platform itself
+(the demo's limits are enforced by the demo, not by the API).
 
 **Beyond.** Streaming chat via Lambda Function URLs, speaker diarization,
 and richer post-meeting artifacts.
