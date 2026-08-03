@@ -18,13 +18,22 @@ export function __resetMemoryStore(opts?: { advanceSeconds?: number }): void {
   }
   memory = new Map();
   clockOffsetMs = 0;
+  // Drop the memoised client too, so a test that rebinds the credential env
+  // vars is not answered by a client built from the previous test's values.
+  redis = null;
 }
 
 let redis: Redis | null = null;
 
 function getRedis(): Redis | null {
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Two naming conventions reach the same database. A database created from
+  // the Upstash console exports UPSTASH_REDIS_REST_*; Vercel's marketplace
+  // integration injects KV_REST_API_* instead. Accepting both means the store
+  // works however it was wired, and — more importantly — nobody has to copy
+  // the token under a second name, which would silently go stale the first
+  // time the database is rotated.
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (!url || !token) return null;
   redis ??= new Redis({ url, token });
   return redis;
