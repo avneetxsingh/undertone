@@ -486,12 +486,12 @@ idempotent so this is wasteful rather than incorrect.
 
 ## Roadmap
 
-**Phase 3 — platform surface.** Webhook subscriptions with HMAC-signed
-delivery (SQS-backed, dead-lettered) and the public demo application are
-shipped — the demo is [live](https://undertone-two.vercel.app) and is the
-platform's first customer. Still ahead: a developer dashboard for key and
-session management, and per-account rate limiting on the platform itself
-(the demo's limits are enforced by the demo, not by the API).
+**Phase 3 — platform surface.** The public demo application is shipped: it is
+[live](https://undertone-two.vercel.app) and is the platform's first customer.
+Still ahead: webhook subscriptions with HMAC-signed delivery (SQS-backed,
+dead-lettered), a developer dashboard for key and session management, and
+per-account rate limiting on the platform itself — today's limits are
+enforced by the demo, not by the API.
 
 **Beyond.** Streaming chat via Lambda Function URLs, speaker diarization,
 and richer post-meeting artifacts.
