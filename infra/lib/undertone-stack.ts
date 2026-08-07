@@ -115,7 +115,9 @@ export class UndertoneStack extends Stack {
     // batchSize is deliberately small: retries are per message, so one poisoned
     // subscriber URL dead-letters on its own instead of dragging a large batch
     // through three delivery attempts with it.
-    webhookSender.addEventSource(new SqsEventSource(webhookQueue, { batchSize: 5 }));
+    webhookSender.addEventSource(
+      new SqsEventSource(webhookQueue, { batchSize: 5, reportBatchItemFailures: true }),
+    );
     for (const f of [createSession, postChunk, endSession]) {
       f.addEnvironment("WEBHOOK_QUEUE_URL", webhookQueue.queueUrl);
       webhookQueue.grantSendMessages(f);

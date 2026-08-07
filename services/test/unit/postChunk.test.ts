@@ -281,4 +281,138 @@ describe("POST /v1/sessions/{id}/chunks", () => {
     const body = JSON.parse(res.body!);
     expect(body.suggestions).toEqual([{ type: "QUESTION", preview: "p2", detail_prompt: "d2" }]);
   });
+
+  test("a session marked isolateMemory never queries other sessions' vectors", async () => {
+    // The hosted demo runs every visitor through one shared platform account,
+    // so cross-session retrieval would pool strangers' transcripts. An isolated
+    // session must not reach the vector index at all.
+    fake = await startFakeGroq({
+      transcript: "hello roadmap",
+      chat: { suggestions: [{ type: "QUESTION", preview: "p2", detail_prompt: "d2" }] },
+    });
+    process.env.GROQ_BASE_URL = fake.url;
+
+    ddbMock
+      .on(QueryCommand)
+      .resolvesOnce({ Items: [{ acctId: "A1", name: "n", groqKeyEnc: "enc" }] })
+      .resolves({ Items: [] });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { chunkCount: 1, isolateMemory: true } });
+    ddbMock.on(PutCommand).resolves({});
+    kmsMock.on(DecryptCommand).resolves({ Plaintext: Buffer.from("gsk_k") });
+    s3Mock.on(PutObjectCommand).resolves({});
+    svMock.on(QueryVectorsCommand).resolves({ vectors: [] } as never);
+
+    const res = await handler({
+      headers: { authorization: `Bearer ${generateApiKey()}`, "content-type": "audio/wav" },
+      pathParameters: { id: "S1" },
+      body: Buffer.alloc(200, "a").toString("base64"),
+      isBase64Encoded: true,
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(svMock.commandCalls(QueryVectorsCommand)).toHaveLength(0);
+    // The prompt always carries a RELEVANT HISTORY section; what matters is
+    // that it is empty, so assert on the section's contents rather than on the
+    // heading (which also appears in the system prompt's own rules).
+    const chatRequest = fake.requests.find((r) => r.url.includes("/chat/completions"));
+    expect(chatRequest?.body).toContain("RELEVANT HISTORY:\\nnone");
+  });
+
+  test("emits chunk.transcribed and suggestions.generated when webhooks are wired", async () => {
+    fake = await startFakeGroq({
+      transcript: "hello roadmap",
+      chat: { suggestions: [{ type: "QUESTION", preview: "p2", detail_prompt: "d2" }] },
+    });
+    process.env.GROQ_BASE_URL = fake.url;
+    process.env.WEBHOOK_QUEUE_URL = "https://wq";
+
+    ddbMock.on(QueryCommand).callsFake((input) => {
+      if (input.IndexName === "GSI1") return { Items: [{ acctId: "A1", name: "n", groqKeyEnc: "enc" }] };
+      if (input.ExpressionAttributeValues?.[":w"] === "WHOOK#")
+        return {
+          Items: [
+            {
+              whookId: "W1",
+              url: "https://h/x",
+              events: ["chunk.transcribed", "suggestions.generated"],
+              status: "active",
+              secretEnc: "e",
+              createdAt: "2026-07-26T00:00:00.000Z",
+            },
+          ],
+        };
+      return { Items: [] };
+    });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { chunkCount: 1 } });
+    ddbMock.on(PutCommand).resolves({});
+    kmsMock.on(DecryptCommand).resolves({ Plaintext: Buffer.from("gsk_k") });
+    s3Mock.on(PutObjectCommand).resolves({});
+    svMock.on(QueryVectorsCommand).resolves({ vectors: [] } as never);
+    sqsMock.on(SendMessageCommand).resolves({});
+
+    const res = await handler({
+      headers: { authorization: `Bearer ${generateApiKey()}`, "content-type": "audio/wav" },
+      pathParameters: { id: "S1" },
+      body: Buffer.alloc(200, "a").toString("base64"),
+      isBase64Encoded: true,
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    const webhookMsgs = sqsMock
+      .commandCalls(SendMessageCommand)
+      .filter((c) => c.args[0].input.QueueUrl === "https://wq")
+      .map((c) => JSON.parse(c.args[0].input.MessageBody!));
+    expect(webhookMsgs.map((m) => m.event).sort()).toEqual(["chunk.transcribed", "suggestions.generated"]);
+    expect(webhookMsgs.every((m) => m.acctId === "A1" && m.whookId === "W1")).toBe(true);
+    expect(webhookMsgs.find((m) => m.event === "chunk.transcribed")!.payload).toMatchObject({
+      sessionId: "S1",
+      seq: 1,
+      transcript: "hello roadmap",
+    });
+    delete process.env.WEBHOOK_QUEUE_URL;
+  });
+
+  test("a webhook enqueue failure does not fail the chunk (best-effort)", async () => {
+    fake = await startFakeGroq({
+      transcript: "hello roadmap",
+      chat: { suggestions: [{ type: "QUESTION", preview: "p2", detail_prompt: "d2" }] },
+    });
+    process.env.GROQ_BASE_URL = fake.url;
+    process.env.WEBHOOK_QUEUE_URL = "https://wq";
+
+    ddbMock.on(QueryCommand).callsFake((input) => {
+      if (input.IndexName === "GSI1") return { Items: [{ acctId: "A1", name: "n", groqKeyEnc: "enc" }] };
+      if (input.ExpressionAttributeValues?.[":w"] === "WHOOK#")
+        return {
+          Items: [
+            {
+              whookId: "W1",
+              url: "https://h/x",
+              events: ["chunk.transcribed"],
+              status: "active",
+              secretEnc: "e",
+              createdAt: "2026-07-26T00:00:00.000Z",
+            },
+          ],
+        };
+      return { Items: [] };
+    });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { chunkCount: 1 } });
+    ddbMock.on(PutCommand).resolves({});
+    kmsMock.on(DecryptCommand).resolves({ Plaintext: Buffer.from("gsk_k") });
+    s3Mock.on(PutObjectCommand).resolves({});
+    svMock.on(QueryVectorsCommand).resolves({ vectors: [] } as never);
+    sqsMock.on(SendMessageCommand).rejects(new Error("sqs down"));
+
+    const res = await handler({
+      headers: { authorization: `Bearer ${generateApiKey()}`, "content-type": "audio/wav" },
+      pathParameters: { id: "S1" },
+      body: Buffer.alloc(200, "a").toString("base64"),
+      isBase64Encoded: true,
+    } as never);
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body!).transcript).toBe("hello roadmap");
+    delete process.env.WEBHOOK_QUEUE_URL;
+  });
 });

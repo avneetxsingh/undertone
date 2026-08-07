@@ -14,29 +14,44 @@ const sqs = new SQSClient({});
  * webhook problem must not turn a successful API call into an error.
  */
 export async function emitEvent(acctId: string, event: WebhookEvent, payload: unknown): Promise<void> {
+  return emitEvents(acctId, [{ event, payload }]);
+}
+
+/**
+ * Batch form. Producers that fire more than one event for the same account —
+ * postChunk fires two per chunk — should use this: the subscription list is
+ * read once and filtered per event, rather than querying DynamoDB once per
+ * event for identical rows.
+ */
+export async function emitEvents(
+  acctId: string,
+  batch: { event: WebhookEvent; payload: unknown }[],
+): Promise<void> {
   const queueUrl = process.env.WEBHOOK_QUEUE_URL;
-  if (!queueUrl) return; // webhooks not wired (e.g. unit tests) — no-op
+  if (!queueUrl || batch.length === 0) return; // webhooks not wired (e.g. unit tests) — no-op
   try {
-    const subs = (await listWebhooks(acctId)).filter(
-      (s) => s.status === "active" && s.events.includes(event),
-    );
-    await Promise.all(
-      subs.map((s) =>
-        sqs.send(
-          new SendMessageCommand({
-            QueueUrl: queueUrl,
-            MessageBody: JSON.stringify({
-              eventId: ulid(),
-              event,
-              acctId,
-              whookId: s.whookId,
-              payload,
-              createdAt: new Date().toISOString(),
+    const active = (await listWebhooks(acctId)).filter((s) => s.status === "active");
+    const createdAt = new Date().toISOString();
+    const sends = batch.flatMap(({ event, payload }) =>
+      active
+        .filter((s) => s.events.includes(event))
+        .map((s) =>
+          sqs.send(
+            new SendMessageCommand({
+              QueueUrl: queueUrl,
+              MessageBody: JSON.stringify({
+                eventId: ulid(),
+                event,
+                acctId,
+                whookId: s.whookId,
+                payload,
+                createdAt,
+              }),
             }),
-          }),
+          ),
         ),
-      ),
     );
+    await Promise.all(sends);
   } catch (e) {
     console.error("emitEvent failed (non-fatal)", e); // webhooks are best-effort; API response must not fail
   }

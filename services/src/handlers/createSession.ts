@@ -30,6 +30,11 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       status: "active",
       chunkCount: 0,
       createdAt: new Date().toISOString(),
+      // Opt-in per session: suppresses cross-session memory retrieval for this
+      // session's chunks. Exists for shared-account callers like the hosted
+      // demo, where one account holds many unrelated people's sessions. Only
+      // written when true so existing sessions keep their current behaviour.
+      ...(body.isolateMemory === true ? { isolateMemory: true } : {}),
     };
     await ddb.send(new PutCommand({ TableName: tableName(), Item: item }));
     await emitEvent(acct.acctId, "session.created", {

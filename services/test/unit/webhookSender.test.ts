@@ -23,7 +23,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const rec = (over = {}) => ({
+const rec = (over = {}, messageId = "m1") => ({
+  messageId,
   body: JSON.stringify({
     eventId: "e1",
     event: "session.completed",
@@ -76,14 +77,51 @@ describe("webhookSender", () => {
     const upd = ddbMock.commandCalls(UpdateCommand).at(-1)!.args[0].input.ExpressionAttributeValues!;
     expect(upd[":st"]).toBe("delivered");
   });
-  test("records failed and throws on non-2xx (so SQS retries)", async () => {
+  test("records failed and reports the message for retry on non-2xx", async () => {
     ddbMock.on(GetCommand).resolves(sub());
     ddbMock.on(UpdateCommand).resolves({});
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("no", { status: 500 }));
-    await expect(handler({ Records: [rec()] } as never)).rejects.toThrow(/delivery failed/);
+
+    const res = await handler({ Records: [rec()] } as never);
+
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: "m1" }]);
     const upd = ddbMock.commandCalls(UpdateCommand).at(-1)!.args[0].input.ExpressionAttributeValues!;
     expect(upd[":st"]).toBe("failed");
     expect(upd[":er"]).toBe("HTTP 500");
+  });
+
+  test("one bad destination does not drag the rest of the batch back", async () => {
+    // The whole point of reportBatchItemFailures: without it, a single dead
+    // subscriber forces every other delivery in the batch to be redelivered
+    // and eventually duplicated at the healthy receivers.
+    ddbMock.on(GetCommand).callsFake((input) => ({
+      Item: {
+        ...sub().Item,
+        whookId: input.Key.SK.replace("WHOOK#", ""),
+        url: input.Key.SK.includes("BAD") ? "https://bad.example.com/x" : "https://ok.example.com/x",
+      },
+    }));
+    ddbMock.on(UpdateCommand).resolves({});
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: unknown) =>
+      String(url).includes("bad.example.com")
+        ? new Response("no", { status: 500 })
+        : new Response("ok", { status: 200 }),
+    );
+
+    const res = await handler({
+      Records: [
+        rec({ whookId: "GOOD1" }, "m-good-1"),
+        rec({ whookId: "BAD" }, "m-bad"),
+        rec({ whookId: "GOOD2" }, "m-good-2"),
+      ],
+    } as never);
+
+    expect(res.batchItemFailures).toEqual([{ itemIdentifier: "m-bad" }]);
+  });
+
+  test("an unparseable body is dropped rather than retried into the DLQ", async () => {
+    const res = await handler({ Records: [{ messageId: "m1", body: "not json" }] } as never);
+    expect(res.batchItemFailures).toEqual([]);
   });
   test("the delivery body never carries the signing secret", async () => {
     ddbMock.on(GetCommand).resolves(sub());

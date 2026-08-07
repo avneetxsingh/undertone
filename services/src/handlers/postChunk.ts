@@ -6,7 +6,7 @@ import { extFromContentType } from "../lib/audio";
 import { requireAccount } from "../lib/auth";
 import { ddb, tableName } from "../lib/ddb";
 import { embedText } from "../lib/embeddings";
-import { emitEvent } from "../lib/emit";
+import { emitEvents } from "../lib/emit";
 import { ApiError, errorResponse, json } from "../lib/errors";
 import { transcribe } from "../lib/groq";
 import { getGroqKey } from "../lib/groqKey";
@@ -31,6 +31,7 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
     // Atomically claim the next sequence number; the condition doubles as
     // "session exists, belongs to this account, and is still active".
     let seq: number;
+    let isolateMemory = false;
     try {
       const upd = await ddb.send(
         new UpdateCommand({
@@ -44,6 +45,9 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
         }),
       );
       seq = upd.Attributes!.chunkCount as number;
+      // ALL_NEW already returns the whole session item, so the isolation flag
+      // costs no extra read.
+      isolateMemory = upd.Attributes!.isolateMemory === true;
     } catch (e) {
       if ((e as Error).name === "ConditionalCheckFailedException")
         throw new ApiError(404, "session_not_found", "No active session with that id");
@@ -74,12 +78,20 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
     const priorChunks = (prior.Items ?? []) as { transcript: string; suggestions: Suggestion[] }[];
     const lastSuggestions = priorChunks.at(-1)?.suggestions ?? [];
 
+    // Cross-session retrieval reaches every OTHER session on the account. That
+    // is the whole point for a real tenant, and exactly wrong for the hosted
+    // demo, where one shared account holds every visitor's sessions — retrieval
+    // there would surface strangers' transcripts to each other. An isolated
+    // session skips the vector index entirely rather than filtering after the
+    // fact, so there is no path by which another session's text is even read.
     let relevantHistory: VectorHit[] = [];
-    try {
-      const embedding = await embedText(transcript);
-      relevantHistory = await searchVectors(embedding, acct.acctId, 4, sessId);
-    } catch (e) {
-      console.error("history retrieval failed (non-fatal)", e);
+    if (!isolateMemory) {
+      try {
+        const embedding = await embedText(transcript);
+        relevantHistory = await searchVectors(embedding, acct.acctId, 4, sessId);
+      } catch (e) {
+        console.error("history retrieval failed (non-fatal)", e);
+      }
     }
 
     const { suggestions, warning } = await generateSuggestionsSafe(
@@ -116,10 +128,13 @@ export const handler = async (event: APIGatewayProxyEventV2) => {
       console.error("embed enqueue failed (non-fatal)", e); // memory is best-effort; the chunk response must not fail
     }
 
-    // Same discipline as the embed enqueue above: emitEvent swallows its own
-    // failures, so a webhook problem cannot turn a successful chunk into an error.
-    await emitEvent(acct.acctId, "chunk.transcribed", { sessionId: sessId, seq, transcript, createdAt });
-    await emitEvent(acct.acctId, "suggestions.generated", { sessionId: sessId, seq, suggestions, createdAt });
+    // Same discipline as the embed enqueue above: emitEvents swallows its own
+    // failures, so a webhook problem cannot turn a successful chunk into an
+    // error. Batched so both events share one subscription lookup.
+    await emitEvents(acct.acctId, [
+      { event: "chunk.transcribed", payload: { sessionId: sessId, seq, transcript, createdAt } },
+      { event: "suggestions.generated", payload: { sessionId: sessId, seq, suggestions, createdAt } },
+    ]);
 
     return json(200, { seq, transcript, suggestions, ...(warning ? { warning } : {}) });
   } catch (e) {

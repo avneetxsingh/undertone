@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { mockClient } from "aws-sdk-client-mock";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { emitEvent } from "../../src/lib/emit";
+import { emitEvent, emitEvents } from "../../src/lib/emit";
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const sqsMock = mockClient(SQSClient);
@@ -61,5 +61,58 @@ describe("emitEvent", () => {
   test("swallows failures (best-effort)", async () => {
     ddbMock.on(QueryCommand).rejects(new Error("ddb down"));
     await expect(emitEvent("A1", "session.completed", {})).resolves.toBeUndefined();
+  });
+});
+
+describe("emitEvents (batch)", () => {
+  test("reads the subscription list once for several events", async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [sub({ whookId: "W1", events: ["chunk.transcribed", "suggestions.generated"] })],
+    });
+    sqsMock.on(SendMessageCommand).resolves({});
+
+    await emitEvents("A1", [
+      { event: "chunk.transcribed", payload: { seq: 1 } },
+      { event: "suggestions.generated", payload: { seq: 1 } },
+    ]);
+
+    // The point of the batch form: one DynamoDB query, two deliveries.
+    expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(1);
+    const events = sqsMock
+      .commandCalls(SendMessageCommand)
+      .map((c) => JSON.parse(c.args[0].input.MessageBody!).event)
+      .sort();
+    expect(events).toEqual(["chunk.transcribed", "suggestions.generated"]);
+  });
+
+  test("filters each event against its own subscribers", async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        sub({ whookId: "W1", events: ["chunk.transcribed"] }),
+        sub({ whookId: "W2", events: ["suggestions.generated"] }),
+        sub({ whookId: "W3", events: ["chunk.transcribed"], status: "paused" }),
+      ],
+    });
+    sqsMock.on(SendMessageCommand).resolves({});
+
+    await emitEvents("A1", [
+      { event: "chunk.transcribed", payload: {} },
+      { event: "suggestions.generated", payload: {} },
+    ]);
+
+    const pairs = sqsMock
+      .commandCalls(SendMessageCommand)
+      .map((c) => {
+        const m = JSON.parse(c.args[0].input.MessageBody!);
+        return `${m.whookId}:${m.event}`;
+      })
+      .sort();
+    expect(pairs).toEqual(["W1:chunk.transcribed", "W2:suggestions.generated"]);
+  });
+
+  test("an empty batch does nothing", async () => {
+    await emitEvents("A1", []);
+    expect(ddbMock.commandCalls(QueryCommand)).toHaveLength(0);
+    expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0);
   });
 });

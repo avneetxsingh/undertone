@@ -36,7 +36,14 @@ describe("POST /api/demo/session", () => {
     await expect(res.json()).resolves.toMatchObject({ id: "s1", kind: "meeting" });
     const [path, init] = mockUpstream.mock.calls[0];
     expect(path).toBe("/v1/sessions");
-    expect(JSON.parse(init.body as string)).toEqual({ kind: "meeting", title: "Live demo" });
+    // isolateMemory is load-bearing, not cosmetic: every visitor shares one
+    // platform account, so without it cross-session retrieval would let one
+    // person's suggestions cite another person's meeting.
+    expect(JSON.parse(init.body as string)).toEqual({
+      kind: "meeting",
+      title: "Live demo",
+      isolateMemory: true,
+    });
   });
 
   test("checks the guard before calling upstream", async () => {
