@@ -133,9 +133,16 @@ export default function DocsPage() {
           <pre className="code-block">
             <code>{`{
   "kind": "meeting" | "interview" | "lecture",  // default: "meeting"
-  "title": "string"                              // default: "Untitled session"
+  "title": "string",                             // default: "Untitled session"
+  "isolateMemory": boolean                       // default: false
 }`}</code>
           </pre>
+          <p>
+            <code>isolateMemory</code> stops this session drawing on the account&apos;s other sessions:
+            suggestions are grounded in its own transcript only. It exists for callers whose single account
+            covers many unrelated people &mdash; the demo on this site sets it, so one visitor&apos;s
+            suggestions can never cite another visitor&apos;s meeting.
+          </p>
           <p>Response &mdash; <code>201</code>:</p>
           <pre className="code-block">
             <code>{`{

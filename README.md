@@ -243,7 +243,7 @@ Every request carries `authorization: Bearer ut_live_…`.
 
 | Method | Path | Description | Status |
 |---|---|---|---|
-| POST | `/v1/sessions` | Create a session — `{title?, kind?: meeting\|interview\|lecture}` | shipped |
+| POST | `/v1/sessions` | Create a session — `{title?, kind?: meeting\|interview\|lecture, isolateMemory?}` | shipped |
 | GET | `/v1/sessions` | List the account's sessions, newest first | shipped |
 | GET | `/v1/sessions/{id}` | Full session: chunks, transcripts, suggestion history | shipped |
 | POST | `/v1/sessions/{id}/chunks` | Raw audio body → `{ seq, transcript, suggestions[] }` | shipped |
