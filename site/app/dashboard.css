@@ -1,0 +1,552 @@
+/* Dashboard. Consumes the token layer in globals.css and defines no colour of
+   its own — see the CSS invariant: every colour here is a var(--token), and
+   every token is defined in both palettes. */
+
+.dashboard {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 32px 64px;
+}
+
+.dashboard h1 {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--text);
+  margin: 24px 0 20px;
+}
+
+.dashboard h2,
+.dashboard h3,
+.dashboard h4 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  color: var(--text);
+}
+
+/* ── Key gate ──────────────────────────────────────── */
+
+.key-gate {
+  max-width: 34em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px;
+  box-shadow: var(--shadow);
+}
+
+.key-gate h2 {
+  font-size: 1.5rem;
+  margin: 0 0 12px;
+}
+
+.key-gate p {
+  color: var(--text-muted);
+  margin: 0 0 20px;
+}
+
+.key-gate form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.key-gate label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.key-gate input {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.key-gate input:focus {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
+.key-gate button[type="submit"] {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 9px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.key-gate-error {
+  color: var(--text);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  margin: 16px 0 0;
+}
+
+.key-gate-alt {
+  margin: 20px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Mode banners ──────────────────────────────────── */
+
+.sample-banner,
+.live-banner {
+  font-size: 0.8125rem;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 0 0 20px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--text);
+}
+
+.live-banner {
+  border-color: var(--border);
+  background: var(--bg-band);
+  color: var(--text-muted);
+}
+
+/* ── Tabs ──────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.tabs button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Panel scaffolding ─────────────────────────────── */
+
+.panel-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-error,
+.panel-status {
+  font-size: 0.875rem;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--text);
+  margin: 0;
+}
+
+.panel-loading,
+.panel-empty,
+.panel-note {
+  color: var(--text-faint);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* ── Sessions ──────────────────────────────────────── */
+
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.session-list button {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.session-list button:hover {
+  border-color: var(--accent-border);
+}
+
+.session-title {
+  color: var(--text);
+  font-size: 0.9375rem;
+}
+
+.session-meta {
+  color: var(--text-faint);
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.session-detail {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 20px;
+  overflow-x: auto;
+}
+
+.session-detail h3 {
+  font-size: 1.375rem;
+  margin: 0 0 16px;
+}
+
+.session-summary {
+  background: var(--bg-band);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+}
+
+.session-summary h4 {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.session-summary p {
+  color: var(--text);
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.action-items {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.chunk {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.chunk-transcript {
+  color: var(--text);
+  margin: 0 0 12px;
+  font-size: 0.9375rem;
+}
+
+.chunk-suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chunk-suggestions li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 2px solid var(--accent-border);
+  padding-left: 12px;
+}
+
+.suggestion-type {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.suggestion-preview {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+/* ── Webhooks ──────────────────────────────────────── */
+
+.secret-reveal {
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+
+.secret-reveal h4 {
+  font-size: 1.0625rem;
+  margin: 0 0 6px;
+}
+
+.secret-reveal p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin: 0 0 12px;
+}
+
+.secret-reveal code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text);
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.secret-reveal button {
+  padding: 7px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.webhook-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 18px 20px;
+}
+
+.webhook-form > label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.webhook-form input[type="text"] {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.webhook-form fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.webhook-form legend {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0 0 8px;
+}
+
+.webhook-form fieldset label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.webhook-form button[type="submit"] {
+  align-self: flex-start;
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.webhook-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.webhook-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px 16px;
+  overflow-x: auto;
+}
+
+.webhook-url {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.webhook-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.webhook-status {
+  border-radius: 4px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  padding: 2px 6px;
+  font-size: 0.6875rem;
+}
+
+.webhook-status.paused {
+  border-color: var(--border);
+  background: var(--bg-band);
+  color: var(--text-faint);
+}
+
+.webhook-delivery {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.webhook-list button {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.webhook-list button:hover {
+  color: var(--accent);
+}
+
+/* ── Events ────────────────────────────────────────── */
+
+.event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.event-list li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px 14px;
+  overflow-x: auto;
+}
+
+.event-name {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text);
+  flex: 1;
+}
+
+.event-time {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.event-list button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.event-list button:hover {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .dashboard {
+    padding: 0 20px 48px;
+  }
+
+  .panel-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
