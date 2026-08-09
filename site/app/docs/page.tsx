@@ -14,6 +14,7 @@ export default function DocsPage() {
           Undertone
         </Link>
         <nav>
+          <Link href="/dashboard">Dashboard</Link>
           <Link href="/architecture">Architecture</Link>
           <a href="https://github.com/avneetxsingh/undertone" target="_blank" rel="noreferrer">
             Source

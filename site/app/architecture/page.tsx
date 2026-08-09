@@ -14,6 +14,7 @@ export default function ArchitecturePage() {
           Undertone
         </Link>
         <nav>
+          <Link href="/dashboard">Dashboard</Link>
           <Link href="/docs">API docs</Link>
           <a href="https://github.com/avneetxsingh/undertone" target="_blank" rel="noreferrer">
             Source

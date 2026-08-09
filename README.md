@@ -90,6 +90,13 @@ sessions per IP per hour, 400 chunks per day globally. If a cap is hit, the
 microphone is denied, or the platform is unreachable, the page degrades to a
 recorded sample session behind a banner saying so, rather than failing.
 
+There is also a **[dashboard](https://undertone-two.vercel.app/dashboard)** for
+sessions, webhook subscriptions and the replayable event log. It needs no key to
+explore — it opens on clearly-labelled sample data, and pasting a real
+`ut_live_` key switches the same screens to live. The key is sent straight from
+your browser to the platform and never touches this site's server; it lives in
+`sessionStorage` and is gone when the tab closes.
+
 The AWS stack behind it is deployed and running in `us-east-1`, stack
 `Undertone-dev`. Currently provisioned:
 
@@ -542,7 +549,7 @@ is [live](https://undertone-two.vercel.app) and is the platform's first customer
 a replayable event log; and per-account rate limiting enforced by the API itself
 rather than by the app calling it.
 
-**Still ahead.** A developer dashboard for key, session and webhook management.
+**Still ahead.** An `Undertone-prod` stage — the public demo points at dev.
 
 **Operational note.** This AWS account carries a Lambda concurrent-execution
 limit of **10**, not the default. Past that, API Gateway answers `503` — a

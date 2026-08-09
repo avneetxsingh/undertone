@@ -8,6 +8,7 @@ export default function Home() {
       <header className="site-header">
         <span className="wordmark">Undertone</span>
         <nav>
+          <Link href="/dashboard">Dashboard</Link>
           <Link href="/docs">API docs</Link>
           <Link href="/architecture">Architecture</Link>
           <a href="https://github.com/avneetxsingh/undertone" target="_blank" rel="noreferrer">
