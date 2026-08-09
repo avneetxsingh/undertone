@@ -25,7 +25,7 @@ account isolation enforced structurally at every storage boundary.
 - [Quick start](#quick-start)
 - [Project structure](#project-structure)
 - [Design decisions](#design-decisions)
-- [What changed: Phase 1 → Phase 2](#what-changed-phase-1--phase-2)
+- [How it was built, phase by phase](#how-it-was-built-phase-by-phase)
 - [Testing and verification](#testing-and-verification)
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
@@ -102,13 +102,14 @@ The AWS stack behind it is deployed and running in `us-east-1`, stack
 
 | Resource | Count |
 |---|---|
-| Lambda functions | 10 |
-| API Gateway HTTP API routes | 8 |
-| IAM roles / scoped policies | 10 / 9 |
+| Lambda functions | 17 handlers |
+| API Gateway HTTP API routes | 15 |
+| IAM roles / scoped policies | 18 / 17 |
 | DynamoDB tables (single-table design) | 1 |
 | S3 buckets (private audio storage) | 1 |
 | S3 Vectors bucket + index | 1 + 1 |
-| SQS queues (work queue + dead-letter) | 2 |
+| SQS queues (2 work queues + 2 dead-letter) | 4 |
+| CloudWatch alarms (webhook DLQ depth) | 1 |
 | KMS keys | 1 |
 
 Every endpoint below has been exercised against the live stack by an
@@ -141,10 +142,15 @@ Written plainly, because this project exists to show capability:
   failure still ends the session. Meanwhile structural failures (bad auth,
   wrong owner, malformed input) fail fast with a consistent typed error
   contract. Async failures retry and land in a dead-letter queue.
-- **Test discipline.** 94 automated tests that assert on *recorded AWS
+- **Test discipline.** 252 automated tests that assert on *recorded AWS
   command inputs* — the actual DynamoDB keys, IAM policy shapes, S3 object
   keys, and vector filters being sent — rather than on mocked return values,
   so a regression that silently broke account isolation would fail CI.
+- **A platform surface, not just an endpoint.** HMAC-signed outbound webhooks
+  with an SSRF guard re-checked at send time, a 7-day replayable event log, and
+  per-account rate limiting enforced inside `requireAccount` so no future
+  handler can forget it — plus a dashboard that lets someone see all of it
+  without holding a key.
 - **AI engineering judgment**: prompt version control, verbatim prompt
   porting verified byte-for-byte, hallucination guards, and retrieval scoped
   to avoid the model restating what's already on screen.
@@ -160,11 +166,12 @@ Written plainly, because this project exists to show capability:
    POST /v1/sessions      │   ┌────────────────────────┐                 │
    POST   …/chunks   ────▶│   │ API Gateway (HTTP API) │  CORS enabled   │
    GET  /v1/search        │   └───────────┬────────────┘                 │
-   POST /v1/chat          │               │ 8 routes → 9 Lambdas         │
+   POST /v1/chat          │               │ 15 routes → 17 Lambdas       │
                           │               ▼                              │
                           │   ┌───────────────────────────────────┐      │
                           │   │ auth: peppered-HMAC key → GSI     │      │
-                          │   │ lookup → authenticated account    │      │
+                          │   │ lookup → account, then per-account│      │
+                          │   │ rate limit (300/min, fails open)  │      │
                           │   └───────────────┬───────────────────┘      │
                           │                   ▼                          │
    ┌──────────────────────┴───────────────────────────────────────┐      │
@@ -184,7 +191,15 @@ Written plainly, because this project exists to show capability:
                           │   DLQ (3 retries)          S3 Vectors index  │
                           │                            (per-account)     │
                           │                                              │
-                          │   KMS ── encrypts each account's Groq key    │
+                          │   emitEvent ──▶ WebhookQueue ──▶ sender ──▶  │
+                          │     │            (per subscription)    HTTPS │
+                          │     │                     │      signed POST │
+                          │     ▼                     ▼                  │
+                          │   event log         WebhookDlq ──▶ CloudWatch│
+                          │   (7-day TTL,        (3 retries)      alarm  │
+                          │    replayable)                               │
+                          │                                              │
+                          │   KMS ── Groq keys + webhook signing secrets │
                           └──────────────────────────────────────────────┘
 ```
 
@@ -194,13 +209,14 @@ Written plainly, because this project exists to show capability:
 
 | Service | Role in the system | Why this one |
 |---|---|---|
-| **API Gateway (HTTP API)** | Public edge for all 8 routes, CORS-enabled | Cheaper and lower-latency than REST APIs; native binary-body support means audio uploads need no multipart parsing |
-| **Lambda (Node 22)** | 9 handlers — one per endpoint, plus the embed worker | Per-endpoint isolation lets IAM be scoped per function; no idle cost between meetings |
+| **API Gateway (HTTP API)** | Public edge for all 15 routes, CORS-enabled | Cheaper and lower-latency than REST APIs; native binary-body support means audio uploads need no multipart parsing |
+| **Lambda (Node 22)** | 17 handlers — one per endpoint, plus the embed and webhook workers | Per-endpoint isolation lets IAM be scoped per function; no idle cost between meetings |
 | **DynamoDB** | Single-table store for accounts, sessions, chunks | Single-digit-ms point lookups for auth on every request; conditional writes give atomic sequence claiming without a lock |
 | **S3** | Raw audio chunk storage, fully private | Durable, cheap, and keeps large blobs out of the database |
 | **S3 Vectors** | Per-account embedding index for semantic retrieval | Purpose-built vector storage — no vector database to run, pay-per-use, native metadata filtering for tenant isolation |
-| **SQS + DLQ** | Decouples embedding from the request path; 3 retries then dead-letter | Embedding is slow and failure-prone; the user's response must never wait on it, and failed jobs must not vanish silently |
-| **KMS** | Encrypts each account's Groq API key at rest | Third-party credentials must never sit in plaintext in a database |
+| **SQS + DLQ** | Two queue pairs — one for embedding, one for webhook delivery; 3 retries then dead-letter | Both are slow and failure-prone and neither should sit on the request path; failed jobs must not vanish silently |
+| **CloudWatch** | Alarm on webhook DLQ depth | A delivery that exhausted its retries is a real failure someone must know about, not a log line nobody reads |
+| **KMS** | Encrypts each account's Groq API key and each webhook signing secret at rest | Third-party credentials must never sit in plaintext in a database |
 | **CloudFormation via CDK** | Whole stack as TypeScript infrastructure-as-code | The architecture is reviewable, diffable, and testable — the test suite asserts on the synthesized template |
 
 Embeddings are the one piece **not** on AWS: they call **Google Gemini**
@@ -215,10 +231,13 @@ a single function, so the swap touched one file and the index dimension.
 
 What happens when a client posts 30 seconds of audio:
 
-1. **Authenticate.** The `ut_live_…` bearer token is HMAC-hashed with a
-   server-side pepper and looked up through a sparse GSI — a point lookup,
-   never a scan. This resolves the authenticated account id used for
-   everything downstream.
+1. **Authenticate, then meter.** The `ut_live_…` bearer token is HMAC-hashed
+   with a server-side pepper and looked up through a sparse GSI — a point
+   lookup, never a scan. This resolves the authenticated account id used for
+   everything downstream. A per-account counter is then incremented and
+   checked; over the limit returns `429`. Counting happens *after* the key is
+   recognised, so a stranger guessing keys cannot exhaust someone else's quota,
+   and it fails **open** — a counter outage must not become an API outage.
 2. **Claim the sequence number.** A single conditional DynamoDB update
    increments the session's chunk counter *only if* the session exists,
    belongs to this account, and is still active. One call yields the next
@@ -236,11 +255,18 @@ What happens when a client posts 30 seconds of audio:
 7. **Persist and enqueue.** The chunk row is written; an SQS message is
    enqueued for asynchronous embedding. The enqueue is non-fatal — if the
    queue is unreachable, the caller still gets their transcript.
-8. **Respond** with the transcript and suggestions in a single round trip.
+8. **Emit.** `chunk.transcribed` and `suggestions.generated` are logged to the
+   event store and fanned out to any matching active subscription — one queue
+   message each, never carrying the signing secret. Best-effort, like the embed
+   enqueue: a webhook problem cannot turn a successful chunk into an error.
+9. **Respond** with the transcript and suggestions in a single round trip.
 
-Separately, `embedWorker` consumes the queue, embeds the transcript via
+Separately, `embedWorker` consumes the embed queue, embeds the transcript via
 Gemini, and writes the vector; failures throw so SQS retries, and after
-three attempts the message lands in the dead-letter queue.
+three attempts the message lands in the dead-letter queue. `webhookSender`
+consumes the delivery queue, re-reads the subscription (so a delete or pause
+takes effect on in-flight deliveries), re-checks SSRF, decrypts the secret and
+POSTs it signed.
 
 ---
 
@@ -381,15 +407,22 @@ UNDERTONE_API=$API UNDERTONE_KEY=$KEY npx tsx scripts/smoke.ts
 │   └── test/stack.test.ts        assertions on the synthesized template
 ├── services/
 │   ├── src/
-│   │   ├── handlers/             one Lambda per endpoint + embedWorker
-│   │   └── lib/                  auth, dynamo, groq, bedrock, vectors,
-│   │                             prompts, suggestions, errors
-│   └── test/unit/                81 tests asserting on AWS command inputs
+│   │   ├── handlers/             17 Lambdas — one per endpoint, plus the
+│   │   │                          embed and webhook workers
+│   │   └── lib/                  auth, rate limiting, dynamo, groq,
+│   │                             embeddings, vectors, prompts, suggestions,
+│   │                             webhooks, events, errors
+│   └── test/unit/                153 tests asserting on AWS command inputs
+├── site/                       the public Next.js app on Vercel — live demo,
+│   ├── app/                     API docs, architecture write-up, dashboard
+│   ├── components/dashboard/    key gate + sessions/webhooks/events panels
+│   └── lib/dashboard/           one DashboardSource interface, two
+│                                 implementations (live and sample)
 ├── scripts/
 │   ├── create-account.ts         mint an account + API key
 │   └── smoke.ts                  end-to-end live verification
-├── web/                        the original Next.js challenge app (see
-│                                 "Where it came from" above)
+├── web/                        the original Next.js challenge app, frozen
+│                                 (see "Where it came from" above)
 └── README.md
 ```
 
@@ -451,7 +484,7 @@ CI.
 
 ---
 
-## What changed: Phase 1 → Phase 2
+## How it was built, phase by phase
 
 **Phase 1 — the core pipeline.** Multi-tenant sessions API, API-key
 authentication, audio ingestion to S3, Groq transcription, the routing-prompt
@@ -473,32 +506,54 @@ reviewed:
 | CORS | Browser clients can call the API directly |
 | Memory-aware smoke test | End-to-end verification including search and chat |
 
-Both phases were built with a plan → task → independent-review workflow: each
-task shipped only after a reviewer verified it against its spec, and each
-phase closed with a whole-branch review covering cross-task seams. Several
-findings were caught this way — including an environment-variable naming
-mismatch that would have broken authentication on the first production
-deploy, and an API response-field inconsistency that would have become a
-breaking change if it had shipped.
+**Phase 3 — platform surface.** Eleven more tasks:
+
+| Added | What it does |
+|---|---|
+| Webhook subscriptions | Five CRUD routes, `whsec_` secrets shown once and KMS-encrypted, per-subscription `events[]` filtering |
+| Signed delivery | Stripe-style `t=…,v1=…` HMAC with the timestamp inside the signed payload, so a captured delivery cannot be replayed |
+| SSRF guard | HTTPS-only, no private/loopback/link-local/metadata addresses — checked at registration *and* again at send time, because DNS can be re-pointed in between |
+| Delivery pipeline | Dedicated queue, sender Lambda, per-message partial batch failures, DLQ + CloudWatch alarm, `lastStatus`/`lastError` per subscription |
+| Event log + replay | Every emitted event stored 7 days — including ones nothing was subscribed to, which is precisely the case replay exists for — and re-sendable to whatever matches now |
+| Per-account rate limiting | Enforced inside `requireAccount`, counted only after a key is recognised, failing open |
+| Public site | Landing page with a live mic demo, API docs, architecture write-up, and a dashboard that works with or without a key |
+
+Every phase used a plan → task → independent-review workflow: each task shipped
+only after a reviewer verified it against its spec, and each phase closed with a
+whole-branch review covering cross-task seams. Several findings were caught this
+way — including an environment-variable naming mismatch that would have broken
+authentication on the first production deploy, an API response-field
+inconsistency that would have become a breaking change if it had shipped, an
+SSRF bypass where IPv4-mapped IPv6 addresses (`::ffff:169.254.169.254`) parsed
+as public, and three DynamoDB reserved words written bare in an update
+expression — a failure mocked tests structurally cannot see, since it only
+surfaces against the real table.
 
 ---
 
 ## Testing and verification
 
-- **81 service tests** — handlers and libraries, asserting on recorded AWS
+- **153 service tests** — handlers and libraries, asserting on recorded AWS
   SDK command inputs: the exact DynamoDB keys, S3 object keys, KMS
   ciphertext, vector filters, and outbound model request bodies (including
   that the correct model IDs are actually sent).
-- **13 infrastructure tests** — assertions against the synthesized
-  CloudFormation template: route set, table key schema, public-access
-  blocking, dead-letter redrive policy, and IAM least-privilege grants.
+- **18 infrastructure tests** — assertions against the synthesized
+  CloudFormation template: route set, table key schema and TTL, public-access
+  blocking, dead-letter redrive policies, and IAM least-privilege grants —
+  including that *every* authenticated handler can write the table, since
+  `requireAccount` now writes a rate counter and a read-only grant would fail
+  live with `AccessDenied` where no mocked test could see it.
+- **81 site tests** — the demo's proxy routes, guards, replay fallback and
+  capture hook, plus the dashboard's source contract, key gate and panels.
 - **End-to-end smoke script** — runs against the live deployed stack,
-  exercising every endpoint in sequence.
-- **Type safety** — `tsc --noEmit` clean across all three workspaces.
+  exercising every endpoint in sequence including a real signed webhook
+  delivery.
+- **Type safety** — `tsc --noEmit` clean across all four workspaces.
 
 ```bash
-cd services && npx vitest run     # 81 tests
-cd infra    && npx vitest run     # 13 template assertions
+cd services && npx vitest run     # 153 tests
+cd infra    && npx vitest run     # 18 template assertions
+cd site     && npx vitest run     # 81 tests
 npx tsx scripts/smoke.ts          # live end-to-end
 ```
 
@@ -535,9 +590,26 @@ deferred.
 query is unpaginated; a session long enough to exceed DynamoDB's 1 MB query
 limit would silently truncate. Fine at demo scale, tracked for long sessions.
 
-**Batch retries.** The embed worker fails an entire SQS batch on a single bad
-message rather than reporting partial batch failures. Vector writes are
-idempotent so this is wasteful rather than incorrect.
+**Batch retries, one queue of two.** The webhook sender reports partial batch
+failures, so one dead destination no longer drags its batch back. The embed
+worker still fails a whole batch on a single bad message. Vector writes are
+idempotent, so that is wasteful rather than incorrect.
+
+**Capacity, not rate, is the real ceiling.** The AWS account carries a Lambda
+concurrent-execution limit of **10** rather than the default 1000. Past that,
+API Gateway answers `503` — which looks exactly like an application bug and is
+not one. It bites long before the 300 requests/minute per-account rate limit
+does. Raising it is a support ticket.
+
+**No production stage.** There is one stack, `Undertone-dev`, and the public
+demo points at it. A `prod` stage would be a context switch in the CDK app and
+a second deploy, not new code — but it has not been done.
+
+**Suggestion types are routed, not guaranteed.** The engine selects from six
+types by rule. Live capture has never once produced an `ACTION_ITEM`, and long
+sessions intermittently return an empty `suggestions` array with
+`warning: "suggestions_failed"`. That is a handled outcome, not a bug — but it
+means the six types should be read as a design, not a promise.
 
 ---
 
