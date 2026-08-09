@@ -41,6 +41,13 @@ export default function DocsPage() {
           A missing or malformed key returns <code>401</code> before any other handler logic runs. Keys are never
           accepted as a query parameter or request body field &mdash; only the header.
         </p>
+        <p>
+          Authenticated requests are metered per account: exceed the per-minute ceiling and the API answers{" "}
+          <code>429 rate_limited</code>. Counting happens only after a key is recognised, so a stranger
+          guessing keys cannot burn through someone else&apos;s allowance. If the counter store itself is
+          unreachable the request is allowed rather than refused &mdash; a limiter outage should not become an
+          API outage.
+        </p>
       </section>
 
       {/* ── 2. Endpoints ───────────────────────────────────── */}
@@ -120,6 +127,16 @@ export default function DocsPage() {
                 <td><span className="method-badge delete">DELETE</span></td>
                 <td><code>/v1/webhooks/&#123;id&#125;</code></td>
                 <td>Remove a subscription.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge get">GET</span></td>
+                <td><code>/v1/events</code></td>
+                <td>Recent events for the account, newest first.</td>
+              </tr>
+              <tr>
+                <td><span className="method-badge post">POST</span></td>
+                <td><code>/v1/events/&#123;id&#125;/replay</code></td>
+                <td>Re-deliver a past event to whichever subscriptions match it now.</td>
               </tr>
             </tbody>
           </table>
@@ -455,6 +472,29 @@ if (crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected))) {
           afterwards.
         </p>
 
+        <h3>Replaying a missed event</h3>
+        <p>
+          Every emitted event is logged for {7} days, whether or not anything was subscribed to it at the
+          time &mdash; which is the point. The usual reason to replay is that a subscription was registered,
+          or repaired, <em>after</em> the event happened, so a log that only kept delivered events would miss
+          exactly the case worth keeping.
+        </p>
+        <pre className="code-block curl-block">
+          <code>{`# What happened recently?
+curl "$UNDERTONE_API/v1/events?limit=10" \\
+  -H "authorization: Bearer $UNDERTONE_KEY"
+
+# Send one of them again
+curl -X POST "$UNDERTONE_API/v1/events/$EVENT_ID/replay" \\
+  -H "authorization: Bearer $UNDERTONE_KEY"
+# → { "evtId": "…", "event": "session.completed", "replayed": 1 }`}</code>
+        </pre>
+        <p>
+          A replay fans out to subscriptions matching <em>now</em>, not the ones that matched originally, and
+          keeps the original event id &mdash; so a receiver de-duplicating on <code>X-Undertone-Delivery</code>
+          recognises it as the same event rather than a new one.
+        </p>
+
         <h3>Retries and delivery status</h3>
         <p>
           Deliveries run through a queue to a dedicated sender. A non-2xx response or a 5-second timeout is
@@ -586,6 +626,16 @@ if (crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected))) {
                 <td>404</td>
                 <td><code>webhook_not_found</code></td>
                 <td>No webhook with that id on this account. Another account&apos;s id reads the same way.</td>
+              </tr>
+              <tr>
+                <td>404</td>
+                <td><code>event_not_found</code></td>
+                <td>No event with that id on this account, or it has passed its retention window.</td>
+              </tr>
+              <tr>
+                <td>429</td>
+                <td><code>rate_limited</code></td>
+                <td>This account exceeded its per-minute request ceiling. Retry shortly.</td>
               </tr>
               <tr>
                 <td>500</td>

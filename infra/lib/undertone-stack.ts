@@ -31,6 +31,10 @@ export class UndertoneStack extends Stack {
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY, // dev stack; prod stage flips to RETAIN
+      // Sweeps the two item types that are meant to expire — replayable events
+      // and per-minute rate counters. Sessions and chunks never set expiresAt,
+      // so they are untouched.
+      timeToLiveAttribute: "expiresAt",
     });
     // Sparse GSI: only account items carry GSI1PK, so this index stays tiny.
     table.addGlobalSecondaryIndex({
@@ -88,6 +92,9 @@ export class UndertoneStack extends Stack {
           VECTOR_BUCKET: vectorBucketName,
           VECTOR_INDEX: vectorIndexName,
           GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? "",
+          // Per-account ceiling enforced inside requireAccount. Unset in unit
+          // tests and local runs, which is how they stay unlimited.
+          RATE_LIMIT_PER_MINUTE: process.env.RATE_LIMIT_PER_MINUTE ?? "300",
           ...(process.env.GROQ_BASE_URL ? { GROQ_BASE_URL: process.env.GROQ_BASE_URL } : {}),
         },
       });
@@ -107,6 +114,8 @@ export class UndertoneStack extends Stack {
     const patchWebhook = makeFn("PatchWebhookFn", "patchWebhook");
     const deleteWebhookFn = makeFn("DeleteWebhookFn", "deleteWebhook");
     const webhookSender = makeFn("WebhookSenderFn", "webhookSender", 30);
+    const listEventsFn = makeFn("ListEventsFn", "listEvents");
+    const replayEventFn = makeFn("ReplayEventFn", "replayEvent");
 
     postChunk.addEnvironment("EMBED_QUEUE_URL", embedQueue.queueUrl);
     embedWorker.addEventSource(new SqsEventSource(embedQueue, { batchSize: 10 }));
@@ -149,6 +158,17 @@ export class UndertoneStack extends Stack {
     groqKms.grantEncrypt(postWebhook);
     groqKms.grantEncrypt(patchWebhook);
     groqKms.grantDecrypt(webhookSender);
+
+    // Event log: listing reads, replay reads and re-enqueues.
+    table.grantReadData(listEventsFn);
+    table.grantReadData(replayEventFn);
+    replayEventFn.addEnvironment("WEBHOOK_QUEUE_URL", webhookQueue.queueUrl);
+    webhookQueue.grantSendMessages(replayEventFn);
+
+    // Every authenticated handler writes a rate counter through requireAccount,
+    // so all of them need table write — including the otherwise read-only ones.
+    for (const f of [getSession, listSessions, search, chat, listWebhooksFn, getWebhookFn, listEventsFn])
+      table.grantWriteData(f);
 
     new cloudwatch.Alarm(this, "WebhookDlqAlarm", {
       metric: webhookDlq.metricApproximateNumberOfMessagesVisible({ period: Duration.minutes(5) }),
@@ -201,6 +221,8 @@ export class UndertoneStack extends Stack {
     route("/v1/webhooks/{id}", apigwv2.HttpMethod.GET, getWebhookFn);
     route("/v1/webhooks/{id}", apigwv2.HttpMethod.PATCH, patchWebhook);
     route("/v1/webhooks/{id}", apigwv2.HttpMethod.DELETE, deleteWebhookFn);
+    route("/v1/events", apigwv2.HttpMethod.GET, listEventsFn);
+    route("/v1/events/{id}/replay", apigwv2.HttpMethod.POST, replayEventFn);
 
     new CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new CfnOutput(this, "TableName", { value: table.tableName });

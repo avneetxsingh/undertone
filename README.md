@@ -256,6 +256,8 @@ Every request carries `authorization: Bearer ut_live_…`.
 | GET | `/v1/webhooks/{id}` | One subscription | shipped |
 | PATCH | `/v1/webhooks/{id}` | Update `url`/`events`/`status`, or `rotateSecret` | shipped |
 | DELETE | `/v1/webhooks/{id}` | Remove a subscription | shipped |
+| GET | `/v1/events` | Recent events for the account, newest first | shipped |
+| POST | `/v1/events/{id}/replay` | Re-deliver a past event to subscriptions matching now | shipped |
 
 ### Webhooks
 
@@ -534,16 +536,18 @@ idempotent so this is wasteful rather than incorrect.
 
 ## Roadmap
 
-**Phase 3 — platform surface.** Two of three cycles are shipped: webhook
-subscriptions with HMAC-signed, SQS-backed, dead-lettered delivery (3a), and
-the public demo application (3b), which is [live](https://undertone-two.vercel.app)
-and is the platform's first customer. Still ahead: a developer dashboard for
-key, session and webhook management, and per-account rate limiting on the
-platform itself — today's limits are enforced by the demo, not by the API.
+**Phase 3 — platform surface.** Shipped: webhook subscriptions with HMAC-signed,
+SQS-backed, dead-lettered delivery (3a); the public demo application (3b), which
+is [live](https://undertone-two.vercel.app) and is the platform's first customer;
+a replayable event log; and per-account rate limiting enforced by the API itself
+rather than by the app calling it.
 
-**Backlog carried from 3a.** `reportBatchItemFailures` on the webhook sender
-(currently a whole-batch retry at `batchSize` 5), a single subscription query
-for `postChunk`'s two events instead of two, and an event-replay endpoint.
+**Still ahead.** A developer dashboard for key, session and webhook management.
+
+**Operational note.** This AWS account carries a Lambda concurrent-execution
+limit of **10**, not the default. Past that, API Gateway answers `503` — a
+capacity ceiling well below the per-account rate limit, and the first thing to
+raise before any real traffic.
 
 **Beyond.** Streaming chat via Lambda Function URLs, speaker diarization,
 and richer post-meeting artifacts.

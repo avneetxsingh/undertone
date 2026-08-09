@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { ApiError } from "./errors";
 import { ddb, tableName } from "./ddb";
+import { enforceRateLimit } from "./rateLimit";
 
 export interface Account {
   acctId: string;
@@ -31,5 +32,11 @@ export async function requireAccount(event: {
   );
   const item = res.Items?.[0];
   if (!item) throw new ApiError(401, "unauthorized", "Unknown API key");
-  return item as Account;
+  const acct = item as Account;
+  // Enforced here rather than per handler so no future handler can forget it.
+  // It counts only authenticated requests by design: an unknown key is already
+  // rejected above, and charging a limit against an account for a key that is
+  // not theirs would let a stranger exhaust someone else's quota.
+  await enforceRateLimit(acct.acctId);
+  return acct;
 }

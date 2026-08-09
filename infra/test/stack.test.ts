@@ -18,14 +18,20 @@ describe("UndertoneStack", () => {
       PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true },
     });
   });
-  test("thirteen API routes", () => {
-    template.resourceCountIs("AWS::ApiGatewayV2::Route", 13);
+  test("fifteen API routes", () => {
+    template.resourceCountIs("AWS::ApiGatewayV2::Route", 15);
+  });
+
+  test("table has TTL on expiresAt (events and rate counters expire themselves)", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+    });
   });
   test("a KMS key exists for groq keys", () => {
     expect(Object.keys(template.findResources("AWS::KMS::Key")).length).toBe(1);
   });
 
-  test("exact set of thirteen route keys (no duplicates, no missing paths)", () => {
+  test("exact set of fifteen route keys (no duplicates, no missing paths)", () => {
     const routes = template.findResources("AWS::ApiGatewayV2::Route");
     const routeKeys = Object.values(routes).map(
       (r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey,
@@ -45,6 +51,8 @@ describe("UndertoneStack", () => {
         "GET /v1/webhooks/{id}",
         "PATCH /v1/webhooks/{id}",
         "DELETE /v1/webhooks/{id}",
+        "GET /v1/events",
+        "POST /v1/events/{id}/replay",
       ].sort(),
     );
   });
@@ -140,7 +148,7 @@ describe("UndertoneStack", () => {
     expect(withSend.length).toBeGreaterThanOrEqual(3);
   });
 
-  test("thirteen API routes including search, chat and webhooks", () => {
+  test("fifteen API routes including search, chat, webhooks and events", () => {
     const routes = template.findResources("AWS::ApiGatewayV2::Route");
     const keys = Object.values(routes)
       .map((r) => (r as { Properties: { RouteKey: string } }).Properties.RouteKey)
@@ -149,7 +157,20 @@ describe("UndertoneStack", () => {
     expect(keys).toContain("POST /v1/chat");
     expect(keys).toContain("POST /v1/webhooks");
     expect(keys).toContain("PATCH /v1/webhooks/{id}");
-    expect(keys.length).toBe(13);
+    expect(keys).toContain("GET /v1/events");
+    expect(keys).toContain("POST /v1/events/{id}/replay");
+    expect(keys.length).toBe(15);
+  });
+
+  test("every authenticated handler can write the table (rate counters)", () => {
+    // requireAccount writes a per-minute counter, so a handler with only read
+    // access would fail with AccessDenied on its first real request — a failure
+    // no unit test can see, because they mock DynamoDB.
+    const policies = Object.values(template.findResources("AWS::IAM::Policy"));
+    const withPutItem = policies.filter((p) => JSON.stringify(p).includes("dynamodb:PutItem"));
+    // 15 authenticated handlers write; embedWorker and webhookSender also hold
+    // table access, so this is a floor rather than an exact count.
+    expect(withPutItem.length).toBeGreaterThanOrEqual(15);
   });
 
   test("cors is configured on the http api", () => {
