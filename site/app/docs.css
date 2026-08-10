@@ -1,0 +1,186 @@
+/* ── Page shell ────────────────────────────────────── */
+
+.docs {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+.docs h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 32px;
+  margin: 8px 0 12px;
+  color: var(--text);
+}
+
+.docs-intro {
+  max-width: 640px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ── Sections ──────────────────────────────────────── */
+
+.docs-section {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.docs-section h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 22px;
+  margin: 0 0 16px;
+  color: var(--text);
+}
+
+.docs-section h3 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 15px;
+  margin: 28px 0 10px;
+  color: var(--text);
+}
+
+.docs-section p {
+  line-height: 1.65;
+}
+
+.docs-note {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Code blocks ───────────────────────────────────── */
+
+.code-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-block code {
+  font-family: var(--font-mono);
+  white-space: pre;
+}
+
+.curl-block {
+  font-size: 12.5px;
+}
+
+/* ── Tables ────────────────────────────────────────── */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.endpoint-table,
+.error-table,
+.limits-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.endpoint-table th,
+.endpoint-table td,
+.error-table th,
+.error-table td,
+.limits-table th,
+.limits-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.endpoint-table td:last-child,
+.error-table td:last-child {
+  white-space: normal;
+}
+
+.endpoint-table th,
+.error-table th,
+.limits-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Method badges ─────────────────────────────────── */
+
+.method-badge {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  background: var(--surface);
+}
+
+.method-badge.get {
+  border-color: var(--accent-border);
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.method-badge.post {
+  border-color: var(--accent-border);
+  color: var(--text);
+  background: var(--accent-subtle);
+}
+
+.method-badge.put {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--bg-band);
+}
+
+.method-badge.patch {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--bg-band);
+}
+
+/* Faint on faint: DELETE reads as the quietest, most cautious verb in the set
+   without introducing a second hue the palette does not define. */
+.method-badge.delete {
+  border-color: var(--text-faint);
+  color: var(--text-faint);
+  background: var(--surface);
+}
+
+/* ── Endpoint detail blocks ────────────────────────── */
+
+.endpoint-detail {
+  margin-top: 28px;
+}
+
+.endpoint-detail h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.endpoint-errors {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Audio format ──────────────────────────────────── */
+
+.audio-type-list {
+  columns: 2;
+  line-height: 1.9;
+}

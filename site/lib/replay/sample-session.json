@@ -1,0 +1,86 @@
+[
+  {
+    "seq": 1,
+    "transcript": " Hi everyone, this is Priya Chandran and Marcus Webb, and today we're covering the Q3 onboarding funnel redesign, our agenda, review the drop-off data, discuss the verification step, and land on a rollout plan before we wrap up in 20 minutes.",
+    "suggestions": [
+      {
+        "type": "QUESTION",
+        "preview": "What key metrics will you track to gauge the redesign’s impact on the verification step and overall activation?",
+        "detail_prompt": "Priya and Marcus, could you specify which performance indicators (e.g., signup‑to‑first‑project conversion, time to activation, verification success rate) you’ll monitor to evaluate the new onboarding funnel, especially the changes to the verification step?"
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Clarify the current verification flow: users receive a code via email that they must enter before proceeding.",
+        "detail_prompt": "Can you walk through the existing email verification process—how the code is delivered, where it’s entered, any expiration rules—so everyone shares the same baseline before discussing the magic‑link replacement?"
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "The 12% drop‑off at verification is a major bottleneck; fixing it could lift the overall 34% activation rate.",
+        "detail_prompt": "Given the recent data showing a 12% user loss at the email verification step, what improvement in the overall activation funnel (currently 34% from signup to first project) do you anticipate if the verification step is streamlined with a magic link, and how does that align with your rollout goals?"
+      }
+    ]
+  },
+  {
+    "seq": 2,
+    "transcript": " So, looking at the numbers, our activation funnel currently converts at 34% from Signup to first project created, and we lost 12% of users specifically at the email verification step last month.",
+    "suggestions": [
+      {
+        "type": "FACT_CHECK",
+        "preview": "The 12% loss cited is 12 percentage points of total sign‑ups, not 12% of users who reached verification, so its effect on the 34% overall activation rate may be less dramatic.",
+        "detail_prompt": "Given the stated 34% overall activation rate and a 12% drop‑off at email verification, clarify whether the 12% refers to total sign‑ups or only those who arrived at verification, and recalculate the expected impact on the activation metric."
+      },
+      {
+        "type": "QUESTION",
+        "preview": "What concrete user feedback or analytics pinpoint the exact reason for the 12% abandonment at the email verification step?",
+        "detail_prompt": "Ask Priya and Marcus to share any qualitative feedback, support tickets, or click‑stream data that explain why users drop off at verification, focusing on factors like email delivery latency, link expiration, or UI copy confusion."
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Specify whether the 34% conversion metric measures users who create a project within the same session or within a defined post‑signup window (e.g., 7 days).",
+        "detail_prompt": "Request a definition of the activation funnel's 34% conversion rate: does it count only immediate project creation after signup, or does it include users who return later within a set timeframe, and how does that align with the verification drop‑off analysis?"
+      }
+    ]
+  },
+  {
+    "seq": 3,
+    "transcript": " That's rough. Marcus, do you know why the verification step is causing so much drop-off? Is it the email delay? Or is it something in the UI copy that's confusing people?",
+    "suggestions": [
+      {
+        "type": "ANSWER",
+        "preview": "We don’t yet know the exact cause; the next step is to audit email delivery logs for latency and review UI copy analytics to pinpoint whether delays or wording drive the 12% drop‑off.",
+        "detail_prompt": "Provide a concise plan for how Priya and Marcus can determine the root cause of the 12% verification drop‑off, specifying which logs, metrics, and user feedback sources to examine."
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Clarify the current verification step: users receive a numeric code via email, must enter it within 15 minutes, and the page copy reads ‘Enter the code to verify your email.’",
+        "detail_prompt": "Ask Marcus to describe the exact workflow and UI copy of the existing email verification step, including code format, expiration time, and any help text shown to users."
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "Suggest a limited‑scope A/B test swapping the code entry for a single‑click magic link on 10 % of users to quickly gauge impact on verification drop‑off.",
+        "detail_prompt": "Request a proposal from Marcus outlining an A/B test design: control with current code‑entry verification, variant with magic‑link verification, sample size, success metrics, and rollout timeline."
+      }
+    ]
+  },
+  {
+    "seq": 4,
+    "transcript": " Honestly, I'm not sure yet. Also, quick question for the group. What exactly do we mean by progressive profiling in this context? I've seen that term in three different specs now, and I don't think we all mean the same thing.",
+    "suggestions": [
+      {
+        "type": "ANSWER",
+        "preview": "Progressive profiling is incrementally gathering user data across onboarding steps, collecting only essential fields early and adding more later to avoid overwhelming new users.",
+        "detail_prompt": "Define progressive profiling as it applies to our Q3 onboarding funnel, specifying which user attributes are captured at signup versus after the first project is created."
+      },
+      {
+        "type": "CLARIFICATION",
+        "preview": "Clarify that progressive profiling impacts the verification step because additional profile fields before verification can increase friction and contribute to the 12% drop‑off.",
+        "detail_prompt": "Explain how progressive profiling interacts with the email verification flow in our funnel and whether shifting profile fields to post‑project creation could reduce verification drop‑off."
+      },
+      {
+        "type": "TALKING_POINT",
+        "preview": "Create a shared one‑page definition of progressive profiling in Confluence and assign Priya as owner to keep all specs aligned on the same terminology.",
+        "detail_prompt": "Draft a concise plan for a progressive profiling definition document, include scope, step‑by‑step data fields, ownership, and schedule a brief alignment slot in the next meeting."
+      }
+    ]
+  }
+]

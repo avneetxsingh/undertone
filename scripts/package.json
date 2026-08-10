@@ -1,0 +1,11 @@
+{
+  "name": "@undertone/scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0",
+    "ulid": "^2.3.0"
+  }
+}
+

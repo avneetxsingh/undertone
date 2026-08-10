@@ -1,2 +1,15 @@
-docs
+# build + dependencies
+node_modules/
+cdk.out/
+dist/
+*.tsbuildinfo
+
+# secrets and local config
+.env
 CLAUDE.md
+
+# local tooling artifacts
+/docs/
+graphify-out/
+.superpowers/
+.DS_Store

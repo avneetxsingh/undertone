@@ -1,235 +1,632 @@
-# Meeting Copilot
+# Undertone
 
-A real-time AI meeting copilot that actually pays attention
-so you don't have to.
+**A multi-tenant, real-time audio-intelligence platform built on AWS serverless.**
 
-🔗 **Live demo:** https://2winmind.vercel.app
+Stream meeting audio to it in 30-second chunks; get back a transcript, three
+contextually-routed AI suggestions, and — because it remembers every session
+you've ever run — suggestions that can cite what you decided in a *previous*
+meeting.
 
----
-
-## What is this?
-
-You're in a meeting. Someone says something smart.
-Someone says something wrong. Someone asks a question
-nobody answers. And you're just sitting there nodding.
-
-This app fixes that. It listens to your meeting in real
-time, transcribes everything, and every 30 seconds surfaces
-3 suggestions that are actually useful — not generic garbage
-like "consider asking a follow-up question."
-
-Three columns. No login. No fluff.
-
-- **Left** — Live transcript of everything being said
-- **Middle** — 3 AI suggestion cards, refreshed every 30s
-- **Right** — Chat panel for deeper answers
-
-<img width="1470" height="809" alt="image" src="https://github.com/user-attachments/assets/1742537b-998a-4205-b20a-12040cfdfb3c" />
-
-
+It is an API platform, not an app: multi-tenant from the first commit, with
+per-account API keys, per-account encrypted inference credentials, and
+account isolation enforced structurally at every storage boundary.
 
 ---
 
-## Before I wrote a single line of code
+## Table of contents
 
-I actually downloaded TwinMind and used it. Ran two full
-fake meeting sessions with ChatGPT on my laptop, Gemini
-on my phone, and TwinMind on my iPad listening to both.
+- [What this is](#what-this-is)
+- [Live deployment](#live-deployment)
+- [What it demonstrates](#what-it-demonstrates)
+- [Architecture](#architecture)
+- [AWS services and why each one](#aws-services-and-why-each-one)
+- [Request lifecycle](#request-lifecycle)
+- [API reference](#api-reference)
+- [Quick start](#quick-start)
+- [Project structure](#project-structure)
+- [Design decisions](#design-decisions)
+- [How it was built, phase by phase](#how-it-was-built-phase-by-phase)
+- [Testing and verification](#testing-and-verification)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
 
-Here's what I found:
+---
 
-TwinMind defaults to questions. Every. Single. Batch.
-Didn't matter if someone made a bold claim, expressed
-confusion, or forced a decision — it asked a question.
-Three questions. Every time.
+## What this is
 
-Five confirmed weaknesses:
+Undertone began as a meeting-copilot coding challenge and was rebuilt as a
+platform. The core insight it's built around: a live meeting assistant is
+only useful if it says something *specific*. Generic advice ("ask a
+clarifying question") is noise. So the suggestion engine doesn't use a flat
+prompt — it uses a **routing prompt** that first classifies the meeting's
+phase (opening / middle / closing) and the current conversational moment
+(a claim, an unanswered question, confusion, a decision), then selects from
+six suggestion types according to rules tied to those signals.
 
-| Weakness | What it means |
+Phase 2 added the thing that makes it genuinely hard to replicate: **memory**.
+Every transcript chunk is embedded and stored in a per-account vector index,
+and each new chunk retrieves semantically-related moments from the account's
+*other* sessions and injects them into the suggestion prompt. The model is
+instructed to cite them by date. The result is a copilot that can say "on
+2026-07-01 you decided to prioritize the mobile app" instead of "consider
+your priorities."
+
+**Tech:** TypeScript end to end — Node 22 Lambdas, AWS CDK for infrastructure,
+Groq (Whisper + `openai/gpt-oss-120b`) for transcription and generation,
+Google Gemini (`gemini-embedding-001`, 768-dim) for embeddings, and S3 Vectors
+for retrieval.
+
+### Where it came from
+
+This repository holds both halves of the story:
+
+- **`web/`** — the original challenge submission: a single-user Next.js
+  meeting copilot with browser audio capture, live transcription, and the
+  first version of the routing-prompt suggestion engine. Self-contained, no
+  backend of its own, API key held in the browser.
+- **`infra/`, `services/`, `scripts/`** — the rebuild: that same suggestion
+  engine extracted into a multi-tenant AWS platform with authentication,
+  persistence, isolation, cross-session memory, and infrastructure as code.
+
+The prompt engineering carried over verbatim — the routing prompt in
+`services/src/lib/prompts.ts` is a byte-for-byte port, verified by a
+mechanical diff, because the product logic was the part worth keeping. What
+changed is everything underneath it.
+
+---
+
+## Live deployment
+
+**Try it: [undertone-two.vercel.app](https://undertone-two.vercel.app)**
+
+A public demo application, deployed on Vercel, consuming this platform as its
+first customer. It captures your microphone in 15-second segments and shows the
+transcript and routed suggestions as they arrive. The demo's own platform
+credentials never reach the browser — it holds its key server-side and proxies
+every call through its own `/api/demo/*` routes.
+
+It is deliberately capped: 20 chunks and 5 chat questions per session, 2
+sessions per IP per hour, 400 chunks per day globally. If a cap is hit, the
+microphone is denied, or the platform is unreachable, the page degrades to a
+recorded sample session behind a banner saying so, rather than failing.
+
+There is also a **[dashboard](https://undertone-two.vercel.app/dashboard)** for
+sessions, webhook subscriptions and the replayable event log. It needs no key to
+explore — it opens on clearly-labelled sample data, and pasting a real
+`ut_live_` key switches the same screens to live. The key is sent straight from
+your browser to the platform and never touches this site's server; it lives in
+`sessionStorage` and is gone when the tab closes.
+
+The AWS stack behind it is deployed and running in `us-east-1`, stack
+`Undertone-dev`. Currently provisioned:
+
+| Resource | Count |
 |---|---|
-| Defaults to questions | No variety regardless of context |
-| Misses fact-check moments | Bold claims go unchallenged |
-| Misses clarification moments | Confusion is ignored |
-| No stage awareness | Wrong suggestions at wrong time |
-| Generic previews | Could apply to any meeting ever |
+| Lambda functions | 17 handlers |
+| API Gateway HTTP API routes | 15 |
+| IAM roles / scoped policies | 18 / 17 |
+| DynamoDB tables (single-table design) | 1 |
+| S3 buckets (private audio storage) | 1 |
+| S3 Vectors bucket + index | 1 + 1 |
+| SQS queues (2 work queues + 2 dead-letter) | 4 |
+| CloudWatch alarms (webhook DLQ depth) | 1 |
+| KMS keys | 1 |
 
-So I built something that actually reads the room.
-
----
-
-## Prompt Strategy
-
-This is the part I'm most proud of and honestly the
-whole point of the assignment.
-
-Instead of one flat prompt that says "give 3 suggestions"
-(which is what produces generic garbage), I built a
-structured reasoning prompt that does three things in
-one pass:
-
-**Step 1 — Read the room**
-Detects where in the conversation we are:
-- OPENING: topic just introduced
-- MIDDLE: substance happening
-- CLOSING: wrapping up, action items
-
-**Step 2 — Detect the moment**
-Reads the last ~60 seconds specifically (last 2 transcript chunks):
-- CLAIM → must surface a FACT_CHECK
-- QUESTION → must surface an ANSWER
-- CONFUSION → must surface a CLARIFICATION
-- DECISION → must surface a TALKING_POINT
-- CLOSING → must surface an ACTION_ITEM
-
-**Step 3 — Enforce variety**
-Hard rules baked into the prompt:
-- Maximum 1 QUESTION per batch
-- Never 3 of the same type
-- Preview must contain the actual insight,
-  not a pointer to it
-
-The preview rule is what separates this from TwinMind.
-
-A bad preview: "Consider fact-checking this statistic"
-
-A good preview: "The 90% failure stat is overstated —
-fitness app churn is driven by poor onboarding, not
-lack of personalization"
-
-Value without clicking. That was the goal.
-
-**Why one prompt instead of chaining multiple?**
-Latency. Groq is fast but not free-API-calls fast.
-One well-structured prompt on GPT-OSS 120B outperforms
-a poorly structured multi-prompt system every time.
-The intelligence lives in the instructions, not the
-architecture.
+Every endpoint below has been exercised against the live stack by an
+end-to-end smoke script (`scripts/smoke.ts`), not just by unit tests.
 
 ---
 
-## Stack
+## What it demonstrates
 
-| Thing | Choice | Why |
-|---|---|---|
-| Framework | Next.js 16.2 + TypeScript | One codebase, API routes built in, one Vercel deploy |
-| Styling | Custom CSS (`page.css`) | Single file, full control, no framework overhead |
-| Transcription | Groq Whisper Large V3 | Required by spec, genuinely fast |
-| Suggestions + Chat | Groq GPT-OSS 120B | Required by spec |
-| Deployment | Vercel | Git push to deploy |
+Written plainly, because this project exists to show capability:
 
-No database. No login. No unnecessary complexity.
-The assignment said don't over-engineer. I listened.
-
----
-
-## How the API key works
-
-You paste your own Groq key in the settings screen.
-It lives in your browser only. Never touches a server
-as a stored secret. Every API call sends it as an
-`x-groq-key` header. Get a free key at console.groq.com.
-
----
-
-## Settings
-
-Click ⚙ Settings in the header to open the settings panel.
-Everything is editable at runtime:
-
-| Field | Default |
-|---|---|
-| Suggestions prompt | Optimized v3 routing prompt |
-| Chat system prompt | Meeting copilot system prompt |
-| Recent context window | 2 chunks (~60s of "right now") |
-| Chat context window | 0 = full transcript sent with answers |
-
-Change the prompts live during a session and the next
-refresh uses your edits immediately. Reset to defaults
-restores all fields to the optimal values.
-
-<img width="499" height="810" alt="image" src="https://github.com/user-attachments/assets/e91a28be-a485-4e9a-a982-6421ebacb3fd" />
-
+- **Multi-tenant serverless architecture on AWS**, defined entirely as
+  infrastructure-as-code with CDK (TypeScript) — reproducible from an empty
+  account with two commands.
+- **A production RAG pipeline**: asynchronous embedding via SQS + a worker
+  Lambda, vector storage in an account-namespaced S3 Vectors index, and
+  retrieval that grounds live generation — with the embedding path
+  deliberately kept *off* the request path so a slow model call can never
+  delay a user response.
+- **Security as a structural property.** Every DynamoDB key and every vector
+  query derives its partition from the *authenticated* account, never from
+  client input. Cross-account access isn't "checked for" — it's
+  unrepresentable, because the lookup key an attacker would need cannot be
+  constructed. Platform API keys are stored as peppered HMAC hashes;
+  per-account Groq keys are KMS-encrypted at rest; IAM is scoped per-Lambda
+  to least privilege (only one function can write vectors, only one can
+  encrypt, only two can decrypt).
+- **Failure design.** Every AI call on the hot path degrades gracefully: a
+  suggestion-generation failure still returns the transcript; a summary
+  failure still ends the session. Meanwhile structural failures (bad auth,
+  wrong owner, malformed input) fail fast with a consistent typed error
+  contract. Async failures retry and land in a dead-letter queue.
+- **Test discipline.** 252 automated tests that assert on *recorded AWS
+  command inputs* — the actual DynamoDB keys, IAM policy shapes, S3 object
+  keys, and vector filters being sent — rather than on mocked return values,
+  so a regression that silently broke account isolation would fail CI.
+- **A platform surface, not just an endpoint.** HMAC-signed outbound webhooks
+  with an SSRF guard re-checked at send time, a 7-day replayable event log, and
+  per-account rate limiting enforced inside `requireAccount` so no future
+  handler can forget it — plus a dashboard that lets someone see all of it
+  without holding a key.
+- **AI engineering judgment**: prompt version control, verbatim prompt
+  porting verified byte-for-byte, hallucination guards, and retrieval scoped
+  to avoid the model restating what's already on screen.
 
 ---
 
-## Running locally
+## Architecture
 
-```bash
-git clone https://github.com/avneetxsingh/TwinMind
-cd TwinMind/web
-npm install
-npm run dev
+```
+                          ┌──────────────────────────────────────────────┐
+   client (any app)       │  AWS us-east-1 · stack: Undertone-dev        │
+   ─────────────────      │                                              │
+   POST /v1/sessions      │   ┌────────────────────────┐                 │
+   POST   …/chunks   ────▶│   │ API Gateway (HTTP API) │  CORS enabled   │
+   GET  /v1/search        │   └───────────┬────────────┘                 │
+   POST /v1/chat          │               │ 15 routes → 17 Lambdas       │
+                          │               ▼                              │
+                          │   ┌───────────────────────────────────┐      │
+                          │   │ auth: peppered-HMAC key → GSI     │      │
+                          │   │ lookup → account, then per-account│      │
+                          │   │ rate limit (300/min, fails open)  │      │
+                          │   └───────────────┬───────────────────┘      │
+                          │                   ▼                          │
+   ┌──────────────────────┴───────────────────────────────────────┐      │
+   │  ingest (postChunk)                                          │      │
+   │   1. atomic seq claim  ─────────────▶ DynamoDB (conditional) │      │
+   │   2. store audio       ─────────────▶ S3 (private)           │      │
+   │   3. transcribe        ─────────────▶ Groq Whisper           │      │
+   │   4. retrieve history  ─────────────▶ S3 Vectors (best-effort)│     │
+   │   5. suggestions       ─────────────▶ Groq gpt-oss-120b      │      │
+   │   6. persist + enqueue ─────────────▶ DynamoDB + SQS         │      │
+   └──────────────────────┬───────────────────────────────────────┘      │
+                          │                                              │
+                          │   SQS ──▶ embedWorker Lambda ──▶ Gemini      │
+                          │    │         (async, off hot path)  embeddings│
+                          │    │                                    │    │
+                          │    ▼                                    ▼    │
+                          │   DLQ (3 retries)          S3 Vectors index  │
+                          │                            (per-account)     │
+                          │                                              │
+                          │   emitEvent ──▶ WebhookQueue ──▶ sender ──▶  │
+                          │     │            (per subscription)    HTTPS │
+                          │     │                     │      signed POST │
+                          │     ▼                     ▼                  │
+                          │   event log         WebhookDlq ──▶ CloudWatch│
+                          │   (7-day TTL,        (3 retries)      alarm  │
+                          │    replayable)                               │
+                          │                                              │
+                          │   KMS ── Groq keys + webhook signing secrets │
+                          └──────────────────────────────────────────────┘
 ```
 
-Open http://localhost:3000, paste your Groq API key (`gsk_...`),
-start talking.
+---
+
+## AWS services and why each one
+
+| Service | Role in the system | Why this one |
+|---|---|---|
+| **API Gateway (HTTP API)** | Public edge for all 15 routes, CORS-enabled | Cheaper and lower-latency than REST APIs; native binary-body support means audio uploads need no multipart parsing |
+| **Lambda (Node 22)** | 17 handlers — one per endpoint, plus the embed and webhook workers | Per-endpoint isolation lets IAM be scoped per function; no idle cost between meetings |
+| **DynamoDB** | Single-table store for accounts, sessions, chunks | Single-digit-ms point lookups for auth on every request; conditional writes give atomic sequence claiming without a lock |
+| **S3** | Raw audio chunk storage, fully private | Durable, cheap, and keeps large blobs out of the database |
+| **S3 Vectors** | Per-account embedding index for semantic retrieval | Purpose-built vector storage — no vector database to run, pay-per-use, native metadata filtering for tenant isolation |
+| **SQS + DLQ** | Two queue pairs — one for embedding, one for webhook delivery; 3 retries then dead-letter | Both are slow and failure-prone and neither should sit on the request path; failed jobs must not vanish silently |
+| **CloudWatch** | Alarm on webhook DLQ depth | A delivery that exhausted its retries is a real failure someone must know about, not a log line nobody reads |
+| **KMS** | Encrypts each account's Groq API key and each webhook signing secret at rest | Third-party credentials must never sit in plaintext in a database |
+| **CloudFormation via CDK** | Whole stack as TypeScript infrastructure-as-code | The architecture is reviewable, diffable, and testable — the test suite asserts on the synthesized template |
+
+Embeddings are the one piece **not** on AWS: they call **Google Gemini**
+(`gemini-embedding-001`, 768-dim, free tier) over HTTPS from the embed worker.
+Bedrock Titan was the original choice but was quota-blocked on the dev account
+(details in [Known limitations](#known-limitations)); the provider lives behind
+a single function, so the swap touched one file and the index dimension.
+
+---
+
+## Request lifecycle
+
+What happens when a client posts 30 seconds of audio:
+
+1. **Authenticate, then meter.** The `ut_live_…` bearer token is HMAC-hashed
+   with a server-side pepper and looked up through a sparse GSI — a point
+   lookup, never a scan. This resolves the authenticated account id used for
+   everything downstream. A per-account counter is then incremented and
+   checked; over the limit returns `429`. Counting happens *after* the key is
+   recognised, so a stranger guessing keys cannot exhaust someone else's quota,
+   and it fails **open** — a counter outage must not become an API outage.
+2. **Claim the sequence number.** A single conditional DynamoDB update
+   increments the session's chunk counter *only if* the session exists,
+   belongs to this account, and is still active. One call yields the next
+   sequence number and proves ownership and liveness simultaneously; a
+   failed condition returns 404 without leaking whether the session exists.
+3. **Persist audio** to a private S3 key namespaced `accountId/sessionId/…`.
+4. **Transcribe** via Groq Whisper (`whisper-large-v3`), using the account's
+   own decrypted Groq key.
+5. **Retrieve memory** — embed the new transcript, query the account's vector
+   index for related moments in *other* sessions. Best-effort: any failure
+   here logs and proceeds with empty history rather than failing the request.
+6. **Generate suggestions** through the routing prompt, with recent
+   transcript, full transcript, previously-shown suggestions (for
+   deduplication), and retrieved history as inputs.
+7. **Persist and enqueue.** The chunk row is written; an SQS message is
+   enqueued for asynchronous embedding. The enqueue is non-fatal — if the
+   queue is unreachable, the caller still gets their transcript.
+8. **Emit.** `chunk.transcribed` and `suggestions.generated` are logged to the
+   event store and fanned out to any matching active subscription — one queue
+   message each, never carrying the signing secret. Best-effort, like the embed
+   enqueue: a webhook problem cannot turn a successful chunk into an error.
+9. **Respond** with the transcript and suggestions in a single round trip.
+
+Separately, `embedWorker` consumes the embed queue, embeds the transcript via
+Gemini, and writes the vector; failures throw so SQS retries, and after
+three attempts the message lands in the dead-letter queue. `webhookSender`
+consumes the delivery queue, re-reads the subscription (so a delete or pause
+takes effect on in-flight deliveries), re-checks SSRF, decrypts the secret and
+POSTs it signed.
+
+---
+
+## API reference
+
+Every request carries `authorization: Bearer ut_live_…`.
+
+| Method | Path | Description | Status |
+|---|---|---|---|
+| POST | `/v1/sessions` | Create a session — `{title?, kind?: meeting\|interview\|lecture, isolateMemory?}` | shipped |
+| GET | `/v1/sessions` | List the account's sessions, newest first | shipped |
+| GET | `/v1/sessions/{id}` | Full session: chunks, transcripts, suggestion history | shipped |
+| POST | `/v1/sessions/{id}/chunks` | Raw audio body → `{ seq, transcript, suggestions[] }` | shipped |
+| POST | `/v1/sessions/{id}/end` | Close the session; generate summary + action items | shipped |
+| PUT | `/v1/account/groq-key` | Store the account's Groq key (KMS-encrypted) | shipped |
+| GET | `/v1/search?q=…` | Semantic search across the account's sessions | shipped |
+| POST | `/v1/chat` | Session-grounded deep-dive — `{sessionId, prompt}` → `{reply}` | shipped |
+| POST | `/v1/webhooks` | Register a subscription — `{url, events[]}`; returns the signing secret once | shipped |
+| GET | `/v1/webhooks` | List subscriptions with delivery status (never secrets) | shipped |
+| GET | `/v1/webhooks/{id}` | One subscription | shipped |
+| PATCH | `/v1/webhooks/{id}` | Update `url`/`events`/`status`, or `rotateSecret` | shipped |
+| DELETE | `/v1/webhooks/{id}` | Remove a subscription | shipped |
+| GET | `/v1/events` | Recent events for the account, newest first | shipped |
+| POST | `/v1/events/{id}/replay` | Re-deliver a past event to subscriptions matching now | shipped |
+
+### Webhooks
+
+Register an HTTPS endpoint and Undertone calls **you** when something happens,
+rather than making you poll.
+
+| Event | Emitted by | Frequency |
+|---|---|---|
+| `session.created` | `createSession` | once per session |
+| `chunk.transcribed` | `postChunk` | every chunk |
+| `suggestions.generated` | `postChunk` | every chunk |
+| `session.completed` | `endSession` | once per session |
+
+Each subscription carries an `events[]` allow-list, so the per-chunk firehose
+reaches only subscribers who asked for it.
+
+**Signing.** Every delivery carries `X-Undertone-Signature: t=<unix>,v1=<hmac>`,
+alongside `X-Undertone-Event` and `X-Undertone-Delivery`. The timestamp is
+signed *with* the body, so a captured delivery cannot be replayed under a fresh
+`t`:
+
+```js
+const [t, v1] = sig.split(",").map((p) => p.split("=")[1]);
+const expected = crypto.createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+if (crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected))) { /* trusted */ }
+```
+
+The secret is a `whsec_` value returned **once** at create (and once more on
+`rotateSecret`), stored KMS-encrypted, and never returned by list or get. It is
+never placed on the delivery queue — the sender re-loads and decrypts it itself.
+
+**SSRF guard.** Subscription URLs must be HTTPS and must not resolve to
+private, loopback, link-local or cloud-metadata ranges — including
+`169.254.169.254`. The check runs at registration *and again at send time*,
+because a hostname that passed once can be re-pointed at an internal address
+afterwards.
+
+**Delivery.** Deliveries go through SQS to a dedicated sender. A non-2xx or a
+5-second timeout is retried; after three attempts the message lands in a
+dead-letter queue with a CloudWatch alarm. The sender re-reads the subscription
+on every attempt, so deleting or pausing one takes effect on in-flight
+deliveries. Each subscription records `lastStatus`, `lastDeliveryAt` and
+`lastError` — written *before* the failure is re-thrown, so a failed delivery is
+both recorded and retried.
+
+Errors are uniform: `{"error": {"code": "…", "message": "…"}}` with
+meaningful status codes — `401` unauthorized, `402` missing/invalid Groq key,
+`404` not found or not owned, `409` already ended, `422` validation, `502`
+upstream model failure. Internal errors return an opaque `500`; details go to
+CloudWatch, never to the caller.
+
+`/v1/` is reserved for versioning — breaking changes would ship as `/v2/`.
+
+---
+
+## Quick start
+
+**Prerequisites:** an AWS account with credentials configured
+(`aws configure`), CDK bootstrapped once per account/region
+(`npx cdk bootstrap`), and a Groq API key (free at
+[console.groq.com](https://console.groq.com)).
+
+```bash
+npm install
+
+# 1. Deploy the stack. Set a real pepper — it salts every API key hash.
+export UNDERTONE_PEPPER="$(openssl rand -hex 32)"
+cd infra && npx cdk deploy -c stage=dev && cd ..
+# → outputs ApiUrl, TableName, BucketName, VectorBucketName
+```
+
+```bash
+# 2. Mint an account and platform API key (same pepper as the deploy).
+TABLE_NAME=<TableName output> npx tsx scripts/create-account.ts "my account"
+# → prints ut_live_… ONCE. It is stored only as a hash; save it now.
+```
+
+```bash
+# 3. Store your Groq key on the account — inference is bring-your-own-key,
+#    so the platform operator pays nothing for it.
+curl -X PUT "$API/v1/account/groq-key" \
+  -H "authorization: Bearer $KEY" -H "content-type: application/json" \
+  -d '{"groqKey": "gsk_…"}'
+```
+
+```bash
+# 4. Run a session.
+curl -X POST "$API/v1/sessions" -H "authorization: Bearer $KEY" \
+  -H "content-type: application/json" -d '{"title": "standup"}'
+
+curl -X POST "$API/v1/sessions/<id>/chunks" -H "authorization: Bearer $KEY" \
+  -H "content-type: audio/wav" \
+  --data-binary @services/test/fixtures/hello.wav
+# → { "seq": 1, "transcript": "…", "suggestions": [ … ] }
+
+curl -X POST "$API/v1/sessions/<id>/end" -H "authorization: Bearer $KEY"
+# → { "status": "ended", "summary": "…", "actionItems": [ … ] }
+```
+
+```bash
+# 5. Verify the whole platform end to end against the live stack.
+UNDERTONE_API=$API UNDERTONE_KEY=$KEY npx tsx scripts/smoke.ts
+# → create → chunk → retrieve → end → search → chat → list → SMOKE PASS
+```
 
 ---
 
 ## Project structure
 
 ```
-web/
-├── app/
-│   ├── api/
-│   │   ├── transcribe/route.ts   # Groq Whisper endpoint
-│   │   ├── suggestions/route.ts  # Suggestion generation (JSON mode)
-│   │   └── chat/route.ts         # Streaming chat completions
-│   ├── page.tsx                  # Root — all state lives here
-│   └── page.css                  # All styles (single file, intentional)
-├── components/
-│   ├── ApiKeyGate.tsx            # Key entry + localStorage persistence
-│   ├── SettingsDrawer.tsx        # Runtime-editable prompts + context windows
-│   ├── TranscriptPane.tsx        # Left column
-│   ├── SuggestionsPane.tsx       # Middle column
-│   └── ChatPane.tsx              # Right column
-└── lib/
-    ├── groq.ts                   # Groq client factory
-    ├── prompts.ts                # SUGGESTIONS_PROMPT (v3) + CHAT_SYSTEM_PROMPT
-    └── types.ts                  # Shared TypeScript types
+.
+├── infra/                      AWS CDK app — the entire architecture as code
+│   ├── lib/undertone-stack.ts    every resource, IAM grant, and route
+│   └── test/stack.test.ts        assertions on the synthesized template
+├── services/
+│   ├── src/
+│   │   ├── handlers/             17 Lambdas — one per endpoint, plus the
+│   │   │                          embed and webhook workers
+│   │   └── lib/                  auth, rate limiting, dynamo, groq,
+│   │                             embeddings, vectors, prompts, suggestions,
+│   │                             webhooks, events, errors
+│   └── test/unit/                153 tests asserting on AWS command inputs
+├── site/                       the public Next.js app on Vercel — live demo,
+│   ├── app/                     API docs, architecture write-up, dashboard
+│   ├── components/dashboard/    key gate + sessions/webhooks/events panels
+│   └── lib/dashboard/           one DashboardSource interface, two
+│                                 implementations (live and sample)
+├── scripts/
+│   ├── create-account.ts         mint an account + API key
+│   └── smoke.ts                  end-to-end live verification
+├── web/                        the original Next.js challenge app, frozen
+│                                 (see "Where it came from" above)
+└── README.md
 ```
 
 ---
 
-## Export
+## Design decisions
 
-Hit **↓ Export session** in the header at any point to download
-a JSON file with:
-- Full transcript with timestamps
-- Every suggestion batch with timestamps and types
-- Full chat history
+**Single-table DynamoDB.** Accounts, sessions, and chunks share one table:
+`ACCT#<id>/META` for accounts, `ACCT#<id>/SESS#<ulid>` for sessions,
+`SESS#<id>/CHUNK#<seq>` for chunks. A sparse GSI maps a hashed API key
+directly to its account, so authentication is always a point lookup. ULIDs
+give sessions chronological ordering for free, and chunk sort keys are
+zero-padded so lexical order matches numeric order.
 
-TwinMind evaluates submissions using this export.
-So I made sure it's clean.
+**Peppered HMAC API keys.** Platform keys are hashed with HMAC-SHA256 plus a
+server-side pepper before touching the database. The plaintext is shown once
+at creation and never stored or logged. A database leak yields no usable
+keys.
 
-```json
-{
-  "exportedAt": "2026-04-25T...",
-  "transcript": [{ "timestamp": "0:30", "text": "..." }],
-  "suggestions": [{ "timestamp": "0:30", "suggestions": [...] }],
-  "chat": [{ "role": "user", "content": "..." }, ...]
-}
+**Bring-your-own inference keys, KMS-encrypted.** Each account supplies its
+own Groq key; it's encrypted with a dedicated KMS key, decrypted in-Lambda
+only at the moment of a model call, and IAM ensures only the handlers that
+need decryption can perform it. This is what makes a public multi-tenant
+deployment cost the operator nothing for inference.
+
+**Ownership proven before every read.** Chunk rows are keyed by session id
+alone, which carries no ownership signal — so every handler that reads them
+performs an account-scoped ownership check *first*, and the code says so at
+the call site. The test suite asserts this ordering, so a future refactor
+that reordered them would fail.
+
+**Graceful degradation, deliberately asymmetric.** On the ingest path,
+failures degrade: no suggestions still returns the transcript; a failed
+summary still ends the session; a failed retrieval still produces
+suggestions. But `/v1/search` deliberately does *not* degrade — returning
+`200` with an empty result set when embeddings are down would tell the user
+"nothing matched" when the truth is "we couldn't look." It fails loudly
+instead.
+
+**Raw binary audio bodies.** Chunks are posted as the literal request body
+with an `audio/*` content type rather than multipart form data — API Gateway
+base64-decodes binary bodies natively, so the ingest handler needs no form
+parsing on the hot path.
+
+**Embedding is asynchronous and idempotent.** Vector writes are keyed by
+`account/session/sequence`, so a retried SQS message overwrites rather than
+duplicates. That makes at-least-once delivery safe without deduplication
+logic.
+
+**Memory is cross-session only.** Retrieval explicitly excludes the current
+session — the model already receives the current transcript in full, so
+including it would just restate what's on screen. Memory exists to surface
+what happened *last time*.
+
+**No SDK for Groq.** The client is a thin `fetch` wrapper whose base URL is
+environment-overridable, so tests point it at a local fake HTTP server —
+real request/response shapes, real error paths, no network and no API key in
+CI.
+
+---
+
+## How it was built, phase by phase
+
+**Phase 1 — the core pipeline.** Multi-tenant sessions API, API-key
+authentication, audio ingestion to S3, Groq transcription, the routing-prompt
+suggestion engine, session summaries with action items, KMS-encrypted
+per-account credentials, and the full CDK stack. Delivered as 12 reviewed
+tasks; deployed and smoke-tested live.
+
+**Phase 2 — memory and retrieval.** Nine further tasks, each independently
+reviewed:
+
+| Added | What it does |
+|---|---|
+| Embeddings library | `gemini-embedding-001` at 768 dimensions (originally Bedrock Titan; swapped after a quota block) |
+| S3 Vectors library | Account-namespaced writes and metadata-filtered queries |
+| Async embed pipeline | SQS + dead-letter queue + `embedWorker` Lambda, so embedding never blocks a response |
+| `GET /v1/search` | Semantic search across an account's entire history |
+| `relevant_history` injection | Cross-session memory injected into the live suggestion prompt, with date-citation rules |
+| `POST /v1/chat` | Session-grounded deep-dive replies |
+| CORS | Browser clients can call the API directly |
+| Memory-aware smoke test | End-to-end verification including search and chat |
+
+**Phase 3 — platform surface.** Eleven more tasks:
+
+| Added | What it does |
+|---|---|
+| Webhook subscriptions | Five CRUD routes, `whsec_` secrets shown once and KMS-encrypted, per-subscription `events[]` filtering |
+| Signed delivery | Stripe-style `t=…,v1=…` HMAC with the timestamp inside the signed payload, so a captured delivery cannot be replayed |
+| SSRF guard | HTTPS-only, no private/loopback/link-local/metadata addresses — checked at registration *and* again at send time, because DNS can be re-pointed in between |
+| Delivery pipeline | Dedicated queue, sender Lambda, per-message partial batch failures, DLQ + CloudWatch alarm, `lastStatus`/`lastError` per subscription |
+| Event log + replay | Every emitted event stored 7 days — including ones nothing was subscribed to, which is precisely the case replay exists for — and re-sendable to whatever matches now |
+| Per-account rate limiting | Enforced inside `requireAccount`, counted only after a key is recognised, failing open |
+| Public site | Landing page with a live mic demo, API docs, architecture write-up, and a dashboard that works with or without a key |
+
+Every phase used a plan → task → independent-review workflow: each task shipped
+only after a reviewer verified it against its spec, and each phase closed with a
+whole-branch review covering cross-task seams. Several findings were caught this
+way — including an environment-variable naming mismatch that would have broken
+authentication on the first production deploy, an API response-field
+inconsistency that would have become a breaking change if it had shipped, an
+SSRF bypass where IPv4-mapped IPv6 addresses (`::ffff:169.254.169.254`) parsed
+as public, and three DynamoDB reserved words written bare in an update
+expression — a failure mocked tests structurally cannot see, since it only
+surfaces against the real table.
+
+---
+
+## Testing and verification
+
+- **153 service tests** — handlers and libraries, asserting on recorded AWS
+  SDK command inputs: the exact DynamoDB keys, S3 object keys, KMS
+  ciphertext, vector filters, and outbound model request bodies (including
+  that the correct model IDs are actually sent).
+- **18 infrastructure tests** — assertions against the synthesized
+  CloudFormation template: route set, table key schema and TTL, public-access
+  blocking, dead-letter redrive policies, and IAM least-privilege grants —
+  including that *every* authenticated handler can write the table, since
+  `requireAccount` now writes a rate counter and a read-only grant would fail
+  live with `AccessDenied` where no mocked test could see it.
+- **81 site tests** — the demo's proxy routes, guards, replay fallback and
+  capture hook, plus the dashboard's source contract, key gate and panels.
+- **End-to-end smoke script** — runs against the live deployed stack,
+  exercising every endpoint in sequence including a real signed webhook
+  delivery.
+- **Type safety** — `tsc --noEmit` clean across all four workspaces.
+
+```bash
+cd services && npx vitest run     # 153 tests
+cd infra    && npx vitest run     # 18 template assertions
+cd site     && npx vitest run     # 81 tests
+npx tsx scripts/smoke.ts          # live end-to-end
 ```
 
 ---
 
-## Tradeoffs
+## Known limitations
 
-**One prompt vs prompt chaining**
-Chaining would give marginally better separation of concerns
-but adds latency and complexity. One well-structured prompt
-on GPT-OSS 120B handles phase detection, moment detection,
-and suggestion selection cleanly in a single pass.
+**Embeddings run through Google Gemini, not Amazon Bedrock — and here's why,
+because it's a more honest story than pretending the first choice worked.**
+The original design used Bedrock Titan Text Embeddings V2. It turned out that
+Bedrock gates on-demand inference per account, and the development account had
+a quota of **0 requests/minute** for Titan V2 in every region tested
+(`us-east-1`, `us-west-2`, `us-east-2`) — non-adjustable through the console,
+and in some regions the Service Quotas API *reported* 6000 rpm while live
+calls still threw `ThrottlingException`, so the reported number didn't reflect
+real entitlement. Rather than block the whole memory feature on an AWS Support
+case, `embedText` was pointed at Gemini's `gemini-embedding-001` (768-dim,
+free tier), which has no per-region gating. The embedding provider is a single
+function (`services/src/lib/embeddings.ts`) precisely so a swap like this
+touches one file plus the vector-index dimension.
 
-**~60 second recent context window**
-Audio chunks every 30 seconds. The recent window sends the
-last 2 chunks (~60s) to weight "right now" more heavily than
-the full transcript. The prompt instructs the model to treat
-claims and questions within this window as the active trigger —
-anything older is background context only.
+The rest of the platform is unchanged and still fully on AWS — DynamoDB, S3,
+S3 Vectors, SQS, KMS, Lambda, all of it. Only the embedding HTTPS call leaves
+AWS. Verified live end to end: posting a chunk writes a real 768-dim vector to
+the index, `/v1/search` returns the matching moment, and the smoke test takes
+its search-hits branch. The Gemini key is supplied to the Lambdas as an
+environment variable.
 
-**No streaming on suggestions**
-Suggestions return as a single JSON object. Streaming partial
-JSON isn't worth the parsing complexity. Chat streams because
-that feels responsive. Suggestions don't because the whole
-batch lands at once anyway.
+**Chat is not streamed.** `/v1/chat` returns a complete JSON reply. Streaming
+requires a Lambda Function URL (API Gateway HTTP APIs don't stream) and is
+deferred.
+
+**Pagination.** Session listing is capped at 50 and the per-session chunk
+query is unpaginated; a session long enough to exceed DynamoDB's 1 MB query
+limit would silently truncate. Fine at demo scale, tracked for long sessions.
+
+**Batch retries, one queue of two.** The webhook sender reports partial batch
+failures, so one dead destination no longer drags its batch back. The embed
+worker still fails a whole batch on a single bad message. Vector writes are
+idempotent, so that is wasteful rather than incorrect.
+
+**Capacity, not rate, is the real ceiling.** The AWS account carries a Lambda
+concurrent-execution limit of **10** rather than the default 1000. Past that,
+API Gateway answers `503` — which looks exactly like an application bug and is
+not one. It bites long before the 300 requests/minute per-account rate limit
+does. Raising it is a support ticket.
+
+**No production stage.** There is one stack, `Undertone-dev`, and the public
+demo points at it. A `prod` stage would be a context switch in the CDK app and
+a second deploy, not new code — but it has not been done.
+
+**Suggestion types are routed, not guaranteed.** The engine selects from six
+types by rule. Live capture has never once produced an `ACTION_ITEM`, and long
+sessions intermittently return an empty `suggestions` array with
+`warning: "suggestions_failed"`. That is a handled outcome, not a bug — but it
+means the six types should be read as a design, not a promise.
+
+---
+
+## Roadmap
+
+**Phase 3 — platform surface.** Shipped: webhook subscriptions with HMAC-signed,
+SQS-backed, dead-lettered delivery (3a); the public demo application (3b), which
+is [live](https://undertone-two.vercel.app) and is the platform's first customer;
+a replayable event log; and per-account rate limiting enforced by the API itself
+rather than by the app calling it.
+
+**Still ahead.** An `Undertone-prod` stage — the public demo points at dev.
+
+**Operational note.** This AWS account carries a Lambda concurrent-execution
+limit of **10**, not the default. Past that, API Gateway answers `503` — a
+capacity ceiling well below the per-account rate limit, and the first thing to
+raise before any real traffic.
+
+**Beyond.** Streaming chat via Lambda Function URLs, speaker diarization,
+and richer post-meeting artifacts.

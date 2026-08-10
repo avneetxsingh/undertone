@@ -1,0 +1,90 @@
+/* ── Page shell ────────────────────────────────────── */
+
+.architecture {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 0 24px 96px;
+}
+
+.architecture h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 32px;
+  margin: 8px 0 12px;
+  color: var(--text);
+}
+
+.architecture-intro {
+  max-width: 640px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ── Sections ──────────────────────────────────────── */
+
+.architecture-section {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.architecture-section h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 22px;
+  margin: 0 0 16px;
+  color: var(--text);
+}
+
+.architecture-section p {
+  line-height: 1.65;
+}
+
+.architecture-note {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ── Request lifecycle list ───────────────────────── */
+
+.lifecycle-list {
+  line-height: 1.7;
+  padding-left: 22px;
+}
+
+.lifecycle-list li {
+  margin-bottom: 14px;
+}
+
+.lifecycle-list li strong {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+/* ── Tables ────────────────────────────────────────── */
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.decisions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.decisions-table th,
+.decisions-table td {
+  text-align: left;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.decisions-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
